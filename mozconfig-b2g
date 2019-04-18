@@ -19,6 +19,7 @@ ac_add_options --disable-av1
 ac_add_options --disable-accessibility
 # ac_add_options --disable-printing # see https://bugzilla.mozilla.org/show_bug.cgi?id=1537586
 ac_add_options --disable-updater
+ac_add_options --disable-jemalloc
 
 # Enable debugging
 ac_add_options --enable-debug
@@ -31,7 +32,7 @@ ac_add_options --disable-webrender # for now...
 
 # With the following Android SDK and NDK:
 ac_add_options --with-android-ndk="$HOME/.mozbuild/android-ndk-r17b"
-ac_add_options --with-android-version=23
+ac_add_options --with-android-version=28
 
 # Use sccache
 ac_add_options --with-ccache=sccache

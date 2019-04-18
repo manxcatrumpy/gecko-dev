@@ -18,7 +18,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/android_alarm.h>
+//#include <linux/android_alarm.h>
 #include <math.h>
 #include <regex.h>
 #include <sched.h>
@@ -37,9 +37,9 @@
 #include "hardware/hardware.h"
 #include "hardware/lights.h"
 #include "hardware_legacy/uevent.h"
-#include "hardware_legacy/vibrator.h"
-#include "hardware_legacy/power.h"
-#include "libdisplay/GonkDisplay.h"
+//#include "hardware_legacy/vibrator.h"
+//#include "hardware_legacy/power.h"
+#include "libdisplay/GonkKDisplay.h"
 #include "utils/threads.h"
 
 #include "base/message_loop.h"
@@ -77,6 +77,7 @@
 #include "UeventPoller.h"
 #include "nsIWritablePropertyBag2.h"
 #include <algorithm>
+#include <dlfcn.h>
 
 #define NsecPerMsec  1000000LL
 #define NsecPerSec   1000000000
@@ -114,6 +115,25 @@
 using namespace mozilla;
 using namespace mozilla::hal;
 using namespace mozilla::dom;
+
+extern android::GonkDisplay * getGonkDisplay();
+
+typedef android::GonkDisplay* (*fnGetGonkDisplay)();
+android::GonkDisplay * getGonkDisplay() {
+  android::GonkDisplay *display = NULL;
+  void* lib = dlopen("/system/lib/libcarthage.so", RTLD_NOW);
+  if (lib == NULL) {
+    HAL_LOG("Could not dlopen(\"libcarthage.so\"):");
+  } else {
+    fnGetGonkDisplay getGonkDisPlay = (fnGetGonkDisplay) dlsym(lib, "GetGonkDisplay") ;
+    if (getGonkDisPlay == NULL) {
+      HAL_LOG("Symbol 'GetGonkDisplay' is missing from shared library!!\n");
+    } else {
+      display = getGonkDisPlay();
+    }
+  }
+  return display;
+}
 
 namespace mozilla {
 namespace hal_impl {
@@ -342,7 +362,7 @@ VibratorRunnable::Run()
     if (mIndex < mPattern.Length()) {
       uint32_t duration = mPattern[mIndex];
       if (mIndex % 2 == 0) {
-        vibrator_on(duration);
+        ;//vibrator_on(duration);
       }
       mIndex++;
       mMonitor.Wait(TimeDuration::FromMilliseconds(duration));
@@ -743,7 +763,7 @@ GetScreenEnabled()
 void
 SetScreenEnabled(bool aEnabled)
 {
-  GetGonkDisplay()->SetEnabled(aEnabled);
+  getGonkDisplay()->SetEnabled(aEnabled);
   sScreenEnabled = aEnabled;
 }
 
