@@ -465,7 +465,7 @@ void WarningOnlyErrorReporter(JSContext* aCx, JSErrorReport* aRep) {
   RefPtr<xpc::ErrorReport> xpcReport = new xpc::ErrorReport();
   nsGlobalWindowInner* win = xpc::CurrentWindowOrNull(aCx);
   xpcReport->Init(aRep, nullptr, nsContentUtils::IsSystemCaller(aCx),
-                  win ? win->AsInner()->WindowID() : 0);
+                  win ? win->WindowID() : 0);
   xpcReport->LogToConsole();
 }
 
@@ -501,8 +501,7 @@ void AutoJSAPI::ReportException() {
     if (mIsMainThread) {
       RefPtr<xpc::ErrorReport> xpcReport = new xpc::ErrorReport();
 
-      RefPtr<nsGlobalWindowInner> win = xpc::WindowOrNull(errorGlobal);
-      nsPIDOMWindowInner* inner = win ? win->AsInner() : nullptr;
+      RefPtr<nsGlobalWindowInner> inner = xpc::WindowOrNull(errorGlobal);
       bool isChrome = nsContentUtils::IsSystemPrincipal(
           nsContentUtils::ObjectPrincipal(errorGlobal));
       xpcReport->Init(jsReport.report(), jsReport.toStringResult().c_str(),
@@ -529,7 +528,7 @@ void AutoJSAPI::ReportException() {
       // because it may want to put it in its error events and has no other way
       // to get hold of it.  After we invoke ReportError, clear the exception on
       // cx(), just in case ReportError didn't.
-      JS_SetPendingException(cx(), exn);
+      JS::SetPendingExceptionAndStack(cx(), exn, exnStack);
       worker->ReportError(cx(), jsReport.toStringResult(), jsReport.report());
       ClearException();
     }

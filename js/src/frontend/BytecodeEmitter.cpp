@@ -2307,7 +2307,8 @@ bool BytecodeEmitter::emitYieldOp(JSOp op) {
 
   SET_RESUMEINDEX(bytecodeSection().code(off), resumeIndex);
 
-  return emit1(JSOP_DEBUGAFTERYIELD);
+  ptrdiff_t unusedOffset;
+  return emitJumpTargetOp(JSOP_AFTERYIELD, &unusedOffset);
 }
 
 bool BytecodeEmitter::emitSetThis(BinaryNode* setThisNode) {
@@ -7024,8 +7025,8 @@ bool BytecodeEmitter::emitSelfHostedResumeGenerator(BinaryNode* callNode) {
 
   ParseNode* kindNode = valNode->pn_next;
   MOZ_ASSERT(kindNode->isKind(ParseNodeKind::StringExpr));
-  uint8_t operand = AbstractGeneratorObject::getResumeKind(
-      cx, kindNode->as<NameNode>().atom());
+  uint8_t operand = uint8_t(AbstractGeneratorObject::getResumeKind(
+      cx, kindNode->as<NameNode>().atom()));
   MOZ_ASSERT(!kindNode->pn_next);
 
   if (!emit2(JSOP_RESUME, operand)) {

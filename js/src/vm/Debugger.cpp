@@ -2059,7 +2059,7 @@ ResumeMode Debugger::fireEnterFrame(JSContext* cx, MutableHandleValue vp) {
 
 #if DEBUG
   // Assert that the hook won't be able to re-enter the generator.
-  if (iter.hasScript() && *iter.pc() == JSOP_DEBUGAFTERYIELD) {
+  if (iter.hasScript() && *iter.pc() == JSOP_AFTERYIELD) {
     auto* genObj = GetGeneratorObjectForFrame(cx, iter.abstractFramePtr());
     MOZ_ASSERT(genObj->isRunning() || genObj->isClosing());
   }
@@ -3034,14 +3034,14 @@ bool Debugger::ensureExecutionObservabilityOfScript(JSContext* cx,
 }
 
 /* static */
-bool Debugger::ensureExecutionObservabilityOfOsrFrame(JSContext* cx,
-                                                      InterpreterFrame* frame) {
-  MOZ_ASSERT(frame->isDebuggee());
-  if (frame->script()->hasBaselineScript() &&
-      frame->script()->baselineScript()->hasDebugInstrumentation()) {
+bool Debugger::ensureExecutionObservabilityOfOsrFrame(
+    JSContext* cx, AbstractFramePtr osrSourceFrame) {
+  MOZ_ASSERT(osrSourceFrame.isDebuggee());
+  if (osrSourceFrame.script()->hasBaselineScript() &&
+      osrSourceFrame.script()->baselineScript()->hasDebugInstrumentation()) {
     return true;
   }
-  ExecutionObservableFrame obs(frame);
+  ExecutionObservableFrame obs(osrSourceFrame);
   return updateExecutionObservabilityOfFrames(cx, obs, Observing);
 }
 

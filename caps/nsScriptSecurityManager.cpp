@@ -7,6 +7,7 @@
 #include "nsScriptSecurityManager.h"
 
 #include "mozilla/ArrayUtils.h"
+#include "mozilla/StoragePrincipalHelper.h"
 
 #include "xpcpublic.h"
 #include "XPCWrapper.h"
@@ -28,6 +29,7 @@
 #include "nsString.h"
 #include "nsCRT.h"
 #include "nsCRTGlue.h"
+#include "nsContentSecurityManager.h"
 #include "nsDocShell.h"
 #include "nsError.h"
 #include "nsGlobalWindowInner.h"
@@ -243,6 +245,33 @@ nsresult nsScriptSecurityManager::GetChannelResultPrincipalIfNotSandboxed(
     nsIChannel* aChannel, nsIPrincipal** aPrincipal) {
   return GetChannelResultPrincipal(aChannel, aPrincipal,
                                    /*aIgnoreSandboxing*/ true);
+}
+
+NS_IMETHODIMP
+nsScriptSecurityManager::GetChannelResultStoragePrincipal(
+    nsIChannel* aChannel, nsIPrincipal** aPrincipal) {
+  nsCOMPtr<nsIPrincipal> principal;
+  nsresult rv = GetChannelResultPrincipal(aChannel, getter_AddRefs(principal),
+                                          /*aIgnoreSandboxing*/ false);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+
+  return StoragePrincipalHelper::Create(aChannel, principal, aPrincipal);
+}
+
+NS_IMETHODIMP
+nsScriptSecurityManager::GetChannelResultPrincipals(
+    nsIChannel* aChannel, nsIPrincipal** aPrincipal,
+    nsIPrincipal** aStoragePrincipal) {
+  nsresult rv = GetChannelResultPrincipal(aChannel, aPrincipal,
+                                          /*aIgnoreSandboxing*/ false);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+
+  return StoragePrincipalHelper::Create(aChannel, *aPrincipal,
+                                        aStoragePrincipal);
 }
 
 static void InheritAndSetCSPOnPrincipalIfNeeded(nsIChannel* aChannel,
@@ -462,59 +491,14 @@ NS_IMPL_ISUPPORTS(nsScriptSecurityManager, nsIScriptSecurityManager)
 
 ///////////////// Security Checks /////////////////
 
-#if defined(DEBUG) && !defined(ANDROID)
-static void AssertEvalNotUsingSystemPrincipal(nsIPrincipal* subjectPrincipal,
-                                              JSContext* cx) {
-  if (!subjectPrincipal->IsSystemPrincipal()) {
-    return;
-  }
-
-  if (Preferences::GetBool("security.allow_eval_with_system_principal")) {
-    return;
-  }
-
-  static StaticAutoPtr<nsTArray<nsCString>> sUrisAllowEval;
-  JS::AutoFilename scriptFilename;
-  if (JS::DescribeScriptedCaller(cx, &scriptFilename)) {
-    if (!sUrisAllowEval) {
-      sUrisAllowEval = new nsTArray<nsCString>();
-      nsAutoCString urisAllowEval;
-      Preferences::GetCString("security.uris_using_eval_with_system_principal",
-                              urisAllowEval);
-      for (const nsACString& filenameString : urisAllowEval.Split(',')) {
-        sUrisAllowEval->AppendElement(filenameString);
-      }
-      ClearOnShutdown(&sUrisAllowEval);
-    }
-
-    nsAutoCString fileName;
-    fileName = nsAutoCString(scriptFilename.get());
-    // Extract file name alone if scriptFilename contains line number
-    // separated by multiple space delimiters in few cases.
-    int32_t fileNameIndex = fileName.FindChar(' ');
-    if (fileNameIndex != -1) {
-      fileName = Substring(fileName, 0, fileNameIndex);
-    }
-    ToLowerCase(fileName);
-
-    for (auto& uriEntry : *sUrisAllowEval) {
-      if (StringEndsWith(fileName, uriEntry)) {
-        return;
-      }
-    }
-  }
-
-  MOZ_ASSERT(false, "do not use eval with system privileges");
-}
-#endif
-
 bool nsScriptSecurityManager::ContentSecurityPolicyPermitsJSAction(
     JSContext* cx, JS::HandleValue aValue) {
   MOZ_ASSERT(cx == nsContentUtils::GetCurrentJSContext());
   nsCOMPtr<nsIPrincipal> subjectPrincipal = nsContentUtils::SubjectPrincipal();
 
 #if defined(DEBUG) && !defined(ANDROID)
-  AssertEvalNotUsingSystemPrincipal(subjectPrincipal, cx);
+  nsContentSecurityManager::AssertEvalNotUsingSystemPrincipal(subjectPrincipal,
+                                                              cx);
 #endif
 
   nsCOMPtr<nsIContentSecurityPolicy> csp;

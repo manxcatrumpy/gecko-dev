@@ -818,7 +818,7 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
 
  public:
   static MOZ_MUST_USE bool ensureExecutionObservabilityOfOsrFrame(
-      JSContext* cx, InterpreterFrame* frame);
+      JSContext* cx, AbstractFramePtr osrSourceFrame);
 
   // Public for DebuggerScript_setBreakpoint.
   static MOZ_MUST_USE bool ensureExecutionObservabilityOfScript(
@@ -1020,7 +1020,7 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
    * Unfortunately, the interpreter and the baseline JIT arrange for this to
    * be called in different ways. The interpreter calls it from JSOP_RESUME,
    * immediately after pushing the resumed frame; the JIT calls it from
-   * JSOP_DEBUGAFTERYIELD, just after the generator resumes. The difference
+   * JSOP_AFTERYIELD, just after the generator resumes. The difference
    * should not be user-visible.
    */
   static inline ResumeMode onResumeFrame(JSContext* cx, AbstractFramePtr frame);

@@ -523,8 +523,14 @@ class Document : public nsINode,
     return DocumentOrShadowRoot::SetValueMissingState(aName, aValue);
   }
 
+  nsIPrincipal* EffectiveStoragePrincipal() const;
+
   // nsIScriptObjectPrincipal
   nsIPrincipal* GetPrincipal() final { return NodePrincipal(); }
+
+  nsIPrincipal* GetEffectiveStoragePrincipal() final {
+    return EffectiveStoragePrincipal();
+  }
 
   // EventTarget
   void GetEventTargetParent(EventChainPreVisitor& aVisitor) override;
@@ -725,10 +731,10 @@ class Document : public nsINode,
   void SetReferrer(const nsACString& aReferrer) { mReferrer = aReferrer; }
 
   /**
-   * Set the principal responsible for this document.  Chances are,
-   * you do not want to be using this.
+   * Set the principals responsible for this document.  Chances are, you do not
+   * want to be using this.
    */
-  void SetPrincipal(nsIPrincipal* aPrincipal);
+  void SetPrincipals(nsIPrincipal* aPrincipal, nsIPrincipal* aStoragePrincipal);
 
   /**
    * Get the list of ancestor principals for a document.  This is the same as
@@ -775,8 +781,8 @@ class Document : public nsINode,
    * Return the referrer from document URI as defined in the Referrer Policy
    * specification.
    * https://w3c.github.io/webappsec-referrer-policy/#determine-requests-referrer
-   * While document is an iframe srcdoc document, let document be document’s
-   * browsing context’s browsing context container’s node document.
+   * While document is an iframe srcdoc document, let document be document???s
+   * browsing context???s browsing context container???s node document.
    * Then referrer should be document's URL
    */
 
@@ -1106,11 +1112,12 @@ class Document : public nsINode,
   /**
    * Set the tracking cookies blocked flag for this document.
    */
-  void SetHasTrackingCookiesBlocked(bool aHasTrackingCookiesBlocked,
-                                    const nsACString& aOriginBlocked) {
+  void SetHasTrackingCookiesBlocked(
+      bool aHasTrackingCookiesBlocked, const nsACString& aOriginBlocked,
+      const Maybe<AntiTrackingCommon::StorageAccessGrantedReason>& aReason) {
     RecordContentBlockingLog(
         aOriginBlocked, nsIWebProgressListener::STATE_COOKIES_BLOCKED_TRACKER,
-        aHasTrackingCookiesBlocked);
+        aHasTrackingCookiesBlocked, aReason);
   }
 
   /**
@@ -1232,6 +1239,12 @@ class Document : public nsINode,
   void EnableEncodingMenu() { mEncodingMenuDisabled = false; }
 
   /**
+   * Called to disable client access to cookies through the document.cookie API
+   * from user JavaScript code.
+   */
+  void DisableCookieAccess() { mDisableCookieAccess = true; }
+
+  /**
    * Access HTTP header data (this may also get set from other
    * sources, like HTML META tags).
    */
@@ -1348,17 +1361,6 @@ class Document : public nsINode,
    * will return viewport information that specifies default information.
    */
   nsViewportInfo GetViewportInfo(const ScreenIntSize& aDisplaySize);
-
-  /**
-   * It updates the viewport overflow type with the given two widths
-   * and the viewport setting of the document.
-   * This should only be called when there is out-of-reach overflow
-   * happens on the viewport, i.e. the viewport should be using
-   * `overflow: hidden`. And it should only be called on a top level
-   * content document.
-   */
-  void UpdateViewportOverflowType(nscoord aScrolledWidth,
-                                  nscoord aScrollportWidth);
 
   void UpdateForScrollAnchorAdjustment(nscoord aLength);
 
@@ -1709,17 +1711,10 @@ class Document : public nsINode,
   }
 
   /**
-   * Assuming that aDocSheets is an array of document-level style
-   * sheets for this document, returns the index that aSheet should
-   * be inserted at to maintain document ordering.
-   *
-   * Type T has to cast to StyleSheet*.
-   *
-   * Defined in DocumentInlines.h.
+   * Returns the index that aSheet should be inserted at to maintain document
+   * ordering.
    */
-  template <typename T>
-  size_t FindDocStyleSheetInsertionPoint(const nsTArray<T>& aDocSheets,
-                                         const StyleSheet& aSheet);
+  size_t FindDocStyleSheetInsertionPoint(const StyleSheet& aSheet);
 
   /**
    * Get this document's CSSLoader.  This is guaranteed to not return null.
@@ -2025,10 +2020,12 @@ class Document : public nsINode,
   // a scriptblocker but NOT within a begin/end update.
   void ContentStateChanged(nsIContent* aContent, EventStates aStateMask);
 
-  // Notify that a document state has changed.
+  // Update a set of document states that may have changed.
   // This should only be called by callers whose state is also reflected in the
   // implementation of Document::GetDocumentState.
-  void DocumentStatesChanged(EventStates aStateMask);
+  //
+  // aNotify controls whether we notify our DocumentStatesChanged observers.
+  void UpdateDocumentStates(EventStates aStateMask, bool aNotify);
 
   void ResetDocumentDirection();
 
@@ -2050,6 +2047,7 @@ class Document : public nsINode,
    * or not.
    * If in doublt, use the above FlushPendingNotifications.
    */
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
   void FlushPendingNotifications(ChangesToFlush aFlush);
 
   /**
@@ -2086,12 +2084,13 @@ class Document : public nsINode,
   virtual void Reset(nsIChannel* aChannel, nsILoadGroup* aLoadGroup);
 
   /**
-   * Reset this document to aURI, aLoadGroup, and aPrincipal.  aURI must not be
-   * null.  If aPrincipal is null, a codebase principal based on aURI will be
-   * used.
+   * Reset this document to aURI, aLoadGroup, aPrincipal and aStoragePrincipal.
+   * aURI must not be null.  If aPrincipal is null, a codebase principal based
+   * on aURI will be used.
    */
   virtual void ResetToURI(nsIURI* aURI, nsILoadGroup* aLoadGroup,
-                          nsIPrincipal* aPrincipal);
+                          nsIPrincipal* aPrincipal,
+                          nsIPrincipal* aStoragePrincipal);
 
   /**
    * Set the container (docshell) for this document. Virtual so that
@@ -2150,6 +2149,11 @@ class Document : public nsINode,
   }
 
   bool IsScriptEnabled();
+
+  /**
+   * Returns true if this document was created from a nsXULPrototypeDocument.
+   */
+  bool LoadedFromPrototype() const { return mPrototypeDocument; }
 
   bool IsTopLevelContentDocument() const { return mIsTopLevelContentDocument; }
   void SetIsTopLevelContentDocument(bool aIsTopLevelContentDocument) {
@@ -3236,6 +3240,8 @@ class Document : public nsINode,
                                            ErrorResult& rv);
   void GetInputEncoding(nsAString& aInputEncoding) const;
   already_AddRefed<Location> GetLocation() const;
+  void GetCookie(nsAString& aCookie, mozilla::ErrorResult& rv);
+  void SetCookie(const nsAString& aCookie, mozilla::ErrorResult& rv);
   void GetReferrer(nsAString& aReferrer) const;
   void GetLastModified(nsAString& aLastModified) const;
   void GetReadyState(nsAString& aReadyState) const;
@@ -3814,11 +3820,9 @@ class Document : public nsINode,
     return mChildDocumentUseCounters[aUseCounter];
   }
 
-  void UpdateDocumentStates(EventStates);
-
   void RemoveDocStyleSheetsFromStyleSets();
   void RemoveStyleSheetsFromStyleSets(
-      const nsTArray<RefPtr<StyleSheet>>& aSheets, SheetType aType);
+      const nsTArray<RefPtr<StyleSheet>>& aSheets, StyleOrigin);
   void ResetStylesheetsToURI(nsIURI* aURI);
   void FillStyleSet();
   void FillStyleSetUserAndUASheets();
@@ -3840,9 +3844,11 @@ class Document : public nsINode,
                                        bool aUpdateCSSLoader);
 
  private:
-  void RecordContentBlockingLog(const nsACString& aOrigin, uint32_t aType,
-                                bool aBlocked) {
-    mContentBlockingLog.RecordLog(aOrigin, aType, aBlocked);
+  void RecordContentBlockingLog(
+      const nsACString& aOrigin, uint32_t aType, bool aBlocked,
+      const Maybe<AntiTrackingCommon::StorageAccessGrantedReason>& aReason =
+          Nothing()) {
+    mContentBlockingLog.RecordLog(aOrigin, aType, aBlocked, aReason);
   }
 
   mutable std::bitset<eDeprecatedOperationCount> mDeprecationWarnedAbout;
@@ -3914,6 +3920,10 @@ class Document : public nsINode,
   static void* UseExistingNameString(nsINode* aRootNode, const nsString* aName);
 
   void MaybeResolveReadyForIdle();
+
+  // This should *ONLY* be used in GetCookie/SetCookie.
+  already_AddRefed<nsIChannel> CreateDummyChannelForCookies(
+      nsIURI* aCodebaseURI);
 
   nsCString mReferrer;
   nsString mLastModified;
@@ -4292,6 +4302,9 @@ class Document : public nsINode,
   // are documented above on SkipLoadEventAfterClose().
   bool mSkipLoadEventAfterClose : 1;
 
+  // When false, the .cookies property is completely disabled
+  bool mDisableCookieAccess : 1;
+
   uint8_t mPendingFullscreenRequests;
 
   uint8_t mXMLDeclarationBits;
@@ -4535,30 +4548,6 @@ class Document : public nsINode,
 
   ViewportType mViewportType;
 
-  // Enum for how content in this document overflows viewport causing
-  // out-of-reach issue. Currently it only takes horizontal overflow
-  // into consideration. This enum and the corresponding field is only
-  // set and read on a top level content document.
-  enum class ViewportOverflowType : uint8_t {
-    // Viewport doesn't have out-of-reach overflow content, either
-    // because the content doesn't overflow, or the viewport doesn't
-    // have "overflow: hidden".
-    NoOverflow,
-
-    // All following items indicates that the content overflows the
-    // scroll port which causing out-of-reach content.
-
-    // Meta viewport is disabled or the document is in desktop mode.
-    Desktop,
-    // The content does not overflow the minimum-scale size. When there
-    // is no minimum scale specified, the default value used by Blink,
-    // 0.25, is used for this matter.
-    ButNotMinScaleSize,
-    // The content overflows the minimum-scale size.
-    MinScaleSize,
-  };
-  ViewportOverflowType mViewportOverflowType;
-
   PLDHashTable* mSubDocuments;
 
   DocHeaderData* mHeaderData;
@@ -4733,6 +4722,9 @@ class Document : public nsINode,
   nsTabSizes mCachedTabSizes;
 
   bool mInRDMPane;
+
+  // The principal to use for the storage area of this document.
+  nsCOMPtr<nsIPrincipal> mIntrinsicStoragePrincipal;
 
  public:
   // Needs to be public because the bindings code pokes at it.

@@ -338,15 +338,21 @@ int32_t Element::TabIndex() {
   return TabIndexDefault();
 }
 
-void Element::Focus(mozilla::ErrorResult& aError) {
+void Element::Focus(const FocusOptions& aOptions, ErrorResult& aError) {
   nsFocusManager* fm = nsFocusManager::GetFocusManager();
   // Also other browsers seem to have the hack to not re-focus (and flush) when
   // the element is already focused.
+  // Until https://github.com/whatwg/html/issues/4512 is clarified, we'll
+  // maintain interoperatibility by not re-focusing, independent of aOptions.
+  // I.e., `focus({ preventScroll: true})` followed by `focus( { preventScroll:
+  // false })` won't re-focus.
   if (fm) {
     if (fm->CanSkipFocus(this)) {
       fm->NeedsFlushBeforeEventHandling(this);
     } else {
-      aError = fm->SetFocus(this, nsIFocusManager::FLAG_BYELEMENTFOCUS);
+      aError = fm->SetFocus(
+          this, nsIFocusManager::FLAG_BYELEMENTFOCUS |
+                    nsFocusManager::FocusOptionsToFocusManagerFlags(aOptions));
     }
   }
 }
@@ -1906,14 +1912,15 @@ void Element::UnbindFromTree(bool aDeep, bool aNullParent) {
   }
 #endif
 
-  ClearInDocument();
-  SetIsConnected(false);
-
   // Ensure that CSS transitions don't continue on an element at a
   // different place in the tree (even if reinserted before next
   // animation refresh).
+  //
   // We need to delete the properties while we're still in document
-  // (if we were in document).
+  // (if we were in document) so that they can look up the
+  // PendingAnimationTracker on the document and remove their animations,
+  // and so they can find their pres context for dispatching cancel events.
+  //
   // FIXME (Bug 522599): Need a test for this.
   if (MayHaveAnimations()) {
     DeleteProperty(nsGkAtoms::transitionsOfBeforeProperty);
@@ -1933,6 +1940,9 @@ void Element::UnbindFromTree(bool aDeep, bool aNullParent) {
       }
     }
   }
+
+  ClearInDocument();
+  SetIsConnected(false);
 
   if (aNullParent || !mParent->IsInShadowTree()) {
     UnsetFlags(NODE_IS_IN_SHADOW_TREE);

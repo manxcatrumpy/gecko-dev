@@ -30,13 +30,13 @@ namespace dom {
 class DocGroup;
 class Element;
 }  // namespace dom
+class PresShell;
 struct ComputedGridTrackInfo;
 }  // namespace mozilla
 
 struct ComputedStyleMap;
 struct nsCSSKTableEntry;
 class nsIFrame;
-class nsIPresShell;
 class nsDOMCSSValueList;
 struct nsMargin;
 class nsROCSSPrimitiveValue;
@@ -153,7 +153,7 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   void SetFrameComputedStyle(ComputedStyle* aStyle, uint64_t aGeneration);
 
   static already_AddRefed<ComputedStyle> DoGetComputedStyleNoFlush(
-      Element* aElement, nsAtom* aPseudo, nsIPresShell* aPresShell,
+      Element* aElement, nsAtom* aPseudo, mozilla::PresShell* aPresShell,
       StyleType aStyleType);
 
 #define STYLE_STRUCT(name_)                \
@@ -283,7 +283,6 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   /* Column properties */
   already_AddRefed<CSSValue> DoGetColumnRuleWidth();
 
-
   // For working around a MSVC bug. See related comment in
   // GenerateComputedDOMStyleGenerated.py.
   already_AddRefed<CSSValue> DummyGetter();
@@ -390,9 +389,9 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   void BasicShapeRadiiToString(nsAString& aCssText,
                                const mozilla::BorderRadius&);
 
-  // Find out if we can safely skip flushing for aDocument (i.e. pending
-  // restyles does not affect mContent).
-  bool NeedsToFlush(Document*) const;
+  // Find out if we can safely skip flushing (i.e. pending restyles do not
+  // affect mElement).
+  bool NeedsToFlush() const;
 
   static ComputedStyleMap* GetComputedStyleMap();
 
@@ -434,7 +433,7 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
    * While computing style data, the presshell we're working with.  Null
    * otherwise.
    */
-  nsIPresShell* mPresShell;
+  mozilla::PresShell* mPresShell;
 
   /*
    * The kind of styles we should be returning.

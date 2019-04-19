@@ -1966,7 +1966,14 @@ static MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER bool Interpret(JSContext* cx,
       COUNT_COVERAGE();
       // Attempt on-stack replacement with Baseline code.
       if (jit::IsBaselineEnabled(cx)) {
-        jit::MethodStatus status = jit::CanEnterBaselineAtBranch(cx, REGS.fp());
+        script->incWarmUpCounter();
+
+        using Tier = jit::BaselineTier;
+        jit::MethodStatus status =
+            jit::JitOptions.baselineInterpreter
+                ? jit::CanEnterBaselineAtBranch<Tier::Interpreter>(cx,
+                                                                   REGS.fp())
+                : jit::CanEnterBaselineAtBranch<Tier::Compiler>(cx, REGS.fp());
         if (status == jit::Method_Error) {
           goto error;
         }
@@ -4108,10 +4115,10 @@ static MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER bool Interpret(JSContext* cx,
         }
 
         switch (resumeKind) {
-          case AbstractGeneratorObject::NEXT:
+          case GeneratorResumeKind::Next:
             break;
-          case AbstractGeneratorObject::THROW:
-          case AbstractGeneratorObject::RETURN:
+          case GeneratorResumeKind::Throw:
+          case GeneratorResumeKind::Return:
             MOZ_ALWAYS_FALSE(GeneratorThrowOrReturn(cx, activation.regs().fp(),
                                                     gen, val, resumeKind));
             goto error;
@@ -4122,12 +4129,13 @@ static MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER bool Interpret(JSContext* cx,
       ADVANCE_AND_DISPATCH(0);
     }
 
-    CASE(JSOP_DEBUGAFTERYIELD) {
-      // No-op in the interpreter, as AbstractGeneratorObject::resume takes care
-      // of fixing up InterpreterFrames.
+    CASE(JSOP_AFTERYIELD) {
+      // AbstractGeneratorObject::resume takes care of setting the frame's
+      // debuggee flag.
       MOZ_ASSERT_IF(REGS.fp()->script()->isDebuggee(), REGS.fp()->isDebuggee());
+      COUNT_COVERAGE();
     }
-    END_CASE(JSOP_DEBUGAFTERYIELD)
+    END_CASE(JSOP_AFTERYIELD)
 
     CASE(JSOP_FINALYIELDRVAL) {
       ReservedRooted<JSObject*> gen(&rootObject0, &REGS.sp[-1].toObject());

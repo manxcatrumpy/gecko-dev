@@ -419,8 +419,9 @@ AsyncCubebTask::AsyncCubebTask(AudioCallbackDriver* aDriver,
       mDriver(aDriver),
       mOperation(aOperation),
       mShutdownGrip(aDriver->GraphImpl()) {
-  NS_WARNING_ASSERTION(mDriver->mAudioStream || aOperation == INIT,
-                       "No audio stream!");
+  NS_WARNING_ASSERTION(
+      mDriver->mAudioStream || aOperation == AsyncCubebOperation::INIT,
+      "No audio stream!");
 }
 
 AsyncCubebTask::~AsyncCubebTask() {}
@@ -439,6 +440,22 @@ AsyncCubebTask::Run() {
         return NS_ERROR_FAILURE;
       }
       mDriver->CompleteAudioContextOperations(mOperation);
+      break;
+    }
+    case AsyncCubebOperation::START: {
+      LOG(LogLevel::Debug, ("%p: AsyncCubebOperation::START driver=%p",
+                            mDriver->GraphImpl(), mDriver.get()));
+      if (!mDriver->StartStream()) {
+        LOG(LogLevel::Warning,
+            ("%p: AsyncCubebOperation couldn't start the driver=%p.",
+             mDriver->GraphImpl(), mDriver.get()));
+      }
+      break;
+    }
+    case AsyncCubebOperation::STOP: {
+      LOG(LogLevel::Debug, ("%p: AsyncCubebOperation::STOP driver=%p",
+                            mDriver->GraphImpl(), mDriver.get()));
+      mDriver->Stop();
       break;
     }
     case AsyncCubebOperation::SHUTDOWN: {
@@ -469,7 +486,8 @@ StreamAndPromiseForOperation::StreamAndPromiseForOperation(
       mFlags(aFlags) {}
 
 AudioCallbackDriver::AudioCallbackDriver(MediaStreamGraphImpl* aGraphImpl,
-                                         uint32_t aInputChannelCount)
+                                         uint32_t aInputChannelCount,
+                                         AudioInputType aAudioInputType)
     : GraphDriver(aGraphImpl),
       mOutputChannels(0),
       mSampleRate(0),
@@ -494,6 +512,13 @@ AudioCallbackDriver::AudioCallbackDriver(MediaStreamGraphImpl* aGraphImpl,
     audio::AudioNotificationReceiver::Register(this);
   }
 #endif
+  if (aAudioInputType == AudioInputType::Voice) {
+    LOG(LogLevel::Debug, ("VOICE."));
+    mInputDevicePreference = CUBEB_DEVICE_PREF_VOICE;
+    CubebUtils::SetInCommunication(true);
+  } else {
+    mInputDevicePreference = CUBEB_DEVICE_PREF_ALL;
+  }
 }
 
 AudioCallbackDriver::~AudioCallbackDriver() {
@@ -504,6 +529,9 @@ AudioCallbackDriver::~AudioCallbackDriver() {
     audio::AudioNotificationReceiver::Unregister(this);
   }
 #endif
+  if (mInputDevicePreference == CUBEB_DEVICE_PREF_VOICE) {
+    CubebUtils::SetInCommunication(false);
+  }
 }
 
 bool IsMacbookOrMacbookAir() {
@@ -589,6 +617,9 @@ bool AudioCallbackDriver::Init() {
   output.channels = mOutputChannels;
   output.layout = CUBEB_LAYOUT_UNDEFINED;
   output.prefs = CubebUtils::GetDefaultStreamPrefs();
+  if (mInputDevicePreference == CUBEB_DEVICE_PREF_VOICE) {
+    output.prefs |= static_cast<cubeb_stream_prefs>(CUBEB_STREAM_PREF_VOICE);
+  }
 
   uint32_t latency_frames = CubebUtils::GetCubebMSGLatencyInFrames(&output);
 
@@ -699,6 +730,7 @@ void AudioCallbackDriver::Stop() {
   if (cubeb_stream_stop(mAudioStream) != CUBEB_OK) {
     NS_WARNING("Could not stop cubeb stream for MSG.");
   }
+  mStarted = false;
 }
 
 void AudioCallbackDriver::Revive() {
@@ -714,9 +746,16 @@ void AudioCallbackDriver::Revive() {
     LOG(LogLevel::Debug,
         ("Starting audio threads for MediaStreamGraph %p from a new thread.",
          mGraphImpl.get()));
-    RefPtr<AsyncCubebTask> initEvent =
-        new AsyncCubebTask(this, AsyncCubebOperation::INIT);
-    initEvent->Dispatch();
+    if (IsStarted()) {
+      RefPtr<AsyncCubebTask> stopEvent =
+          new AsyncCubebTask(this, AsyncCubebOperation::STOP);
+      // This dispatches to a thread pool with a maximum of one thread thus it
+      // is guaranteed to be executed before the start event, right below.
+      stopEvent->Dispatch();
+    }
+    RefPtr<AsyncCubebTask> startEvent =
+        new AsyncCubebTask(this, AsyncCubebOperation::START);
+    startEvent->Dispatch();
   }
 }
 

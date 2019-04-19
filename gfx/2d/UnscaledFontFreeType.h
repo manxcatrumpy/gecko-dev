@@ -56,6 +56,8 @@ class UnscaledFontFreeType : public UnscaledFont {
   bool GetWRFontDescriptor(WRFontDescriptorOutput aCb, void* aBaton) override;
 
 #if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GONK)
+  FT_Face InitFace();
+
   already_AddRefed<ScaledFont> CreateScaledFont(
       Float aGlyphSize, const uint8_t* aInstanceData,
       uint32_t aInstanceDataLength, const FontVariation* aVariations,
