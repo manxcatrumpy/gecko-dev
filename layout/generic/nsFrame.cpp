@@ -4025,7 +4025,7 @@ nsresult nsFrame::HandleEvent(nsPresContext* aPresContext,
   }
 
   if ((aEvent->mClass == eMouseEventClass &&
-       aEvent->AsMouseEvent()->button == WidgetMouseEvent::eLeftButton) ||
+       aEvent->AsMouseEvent()->mButton == MouseButton::eLeft) ||
       aEvent->mClass == eTouchEventClass) {
     if (aEvent->mMessage == eMouseDown || aEvent->mMessage == eTouchStart) {
       HandlePress(aPresContext, aEvent, aEventStatus);
@@ -4062,7 +4062,7 @@ nsresult nsFrame::GetDataForTableSelection(
       selectingTableCells &&
       (aMouseEvent->mMessage == eMouseMove ||
        (aMouseEvent->mMessage == eMouseUp &&
-        aMouseEvent->button == WidgetMouseEvent::eLeftButton) ||
+        aMouseEvent->mButton == MouseButton::eLeft) ||
        aMouseEvent->IsShift());
 
   if (!doTableSelection) {
@@ -7435,7 +7435,8 @@ bool nsIFrame::IsBlockWrapper() const {
   auto pseudoType = Style()->GetPseudoType();
   return pseudoType == PseudoStyleType::mozBlockInsideInlineWrapper ||
          pseudoType == PseudoStyleType::buttonContent ||
-         pseudoType == PseudoStyleType::cellContent;
+         pseudoType == PseudoStyleType::cellContent ||
+         pseudoType == PseudoStyleType::columnSpanWrapper;
 }
 
 bool nsIFrame::IsBlockFrameOrSubclass() const {
