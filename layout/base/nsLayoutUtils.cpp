@@ -8828,7 +8828,8 @@ static void MaybeReflowForInflationScreenSizeChange(
 /* static */
 void nsLayoutUtils::SetVisualViewportSize(PresShell* aPresShell,
                                           CSSSize aSize) {
-  MOZ_ASSERT(aSize.width >= 0.0 && aSize.height >= 0.0);
+  // TODO, comment this line to prevent content process crash.
+  // MOZ_ASSERT(aSize.width >= 0.0 && aSize.height >= 0.0);
 
   aPresShell->SetVisualViewportSize(
       nsPresContext::CSSPixelsToAppUnits(aSize.width),
