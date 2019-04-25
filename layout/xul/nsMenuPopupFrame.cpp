@@ -578,10 +578,10 @@ void nsMenuPopupFrame::LayoutPopup(nsBoxLayoutState& aState,
       EnsureMenuItemIsVisible(mCurrentMenu);
     }
 
-#ifndef MOZ_WIDGET_GTK
     // If the animate attribute is set to open, check for a transition and wait
     // for it to finish before firing the popupshown event.
-    if (mContent->AsElement()->AttrValueIs(kNameSpaceID_None,
+    if (StaticPrefs::xul_panel_animations_enabled() &&
+        mContent->AsElement()->AttrValueIs(kNameSpaceID_None,
                                            nsGkAtoms::animate, nsGkAtoms::open,
                                            eCaseMatters) &&
         AnimationUtils::HasCurrentTransitions(mContent->AsElement(),
@@ -591,7 +591,6 @@ void nsMenuPopupFrame::LayoutPopup(nsBoxLayoutState& aState,
                                        mPopupShownDispatcher, false, false);
       return;
     }
-#endif
 
     // If there are no transitions, fire the popupshown event right away.
     nsCOMPtr<nsIRunnable> event = new nsXULPopupShownEvent(GetContent(), pc);
@@ -857,7 +856,7 @@ void nsMenuPopupFrame::ShowPopup(bool aIsContextMenu) {
         EventStateManager::ClearGlobalActiveContent(activeESM);
       }
 
-      nsIPresShell::SetCapturingContent(nullptr, 0);
+      PresShell::ReleaseCapturingContent();
     }
 
     nsMenuFrame* menuFrame = do_QueryFrame(GetParent());
@@ -869,7 +868,7 @@ void nsMenuPopupFrame::ShowPopup(bool aIsContextMenu) {
 
     // do we need an actual reflow here?
     // is SetPopupPosition all that is needed?
-    PresShell()->FrameNeedsReflow(this, nsIPresShell::eTreeChange,
+    PresShell()->FrameNeedsReflow(this, IntrinsicDirty::TreeChange,
                                   NS_FRAME_HAS_DIRTY_CHILDREN);
 
     if (mPopupType == ePopupTypeMenu) {
@@ -1806,9 +1805,9 @@ void nsMenuPopupFrame::EnsureMenuItemIsVisible(nsMenuFrame* aMenuItem) {
     aMenuItem->PresShell()->ScrollFrameRectIntoView(
         aMenuItem, nsRect(nsPoint(0, 0), aMenuItem->GetRect().Size()),
         nsIPresShell::ScrollAxis(), nsIPresShell::ScrollAxis(),
-        nsIPresShell::SCROLL_OVERFLOW_HIDDEN |
-            nsIPresShell::SCROLL_FIRST_ANCESTOR_ONLY |
-            nsIPresShell::SCROLL_IGNORE_SCROLL_MARGIN_AND_PADDING);
+        ScrollFlags::ScrollOverflowHidden |
+            ScrollFlags::ScrollFirstAncestorOnly |
+            ScrollFlags::IgnoreMarginAndPadding);
   }
 }
 

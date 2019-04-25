@@ -33,7 +33,7 @@
 #include "nsIRaceCacheWithNetwork.h"
 #include "mozilla/extensions/PStreamFilterParent.h"
 #include "mozilla/Mutex.h"
-#include "nsITabParent.h"
+#include "nsIRemoteTab.h"
 
 class nsDNSPrefetch;
 class nsICancelable;
@@ -160,7 +160,7 @@ class nsHttpChannel final : public HttpBaseChannel,
   NS_IMETHOD AsyncOpen(nsIStreamListener *aListener) override;
   // nsIHttpChannel
   NS_IMETHOD GetEncodedBodySize(uint64_t *aEncodedBodySize) override;
-  NS_IMETHOD SwitchProcessTo(mozilla::dom::Promise *aTabParent,
+  NS_IMETHOD SwitchProcessTo(mozilla::dom::Promise *aBrowserParent,
                              uint64_t aIdentifier) override;
   NS_IMETHOD HasCrossOriginOpenerPolicyMismatch(bool *aMismatch) override;
   // nsIHttpChannelInternal
@@ -286,7 +286,7 @@ class nsHttpChannel final : public HttpBaseChannel,
   }
   TransactionObserver *GetTransactionObserver() { return mTransactionObserver; }
 
-  typedef MozPromise<nsCOMPtr<nsITabParent>, nsresult, false> TabPromise;
+  typedef MozPromise<nsCOMPtr<nsIRemoteTab>, nsresult, false> TabPromise;
   already_AddRefed<TabPromise> TakeRedirectTabPromise() {
     return mRedirectTabPromise.forget();
   }
@@ -586,6 +586,14 @@ class nsHttpChannel final : public HttpBaseChannel,
   // to readjust the referrer if needed according to the referrer default
   // policy preferences.
   void ReEvaluateReferrerAfterTrackingStatusIsKnown();
+
+  // Create a dummy channel for the same principal, out of the load group
+  // just to revalidate the cache entry.  We don't care if this fails.
+  // This method can be called on any thread, and creates an idle task
+  // to perform the revalidation with delay.
+  void PerformBackgroundCacheRevalidation();
+  // This method can only be called on the main thread.
+  void PerformBackgroundCacheRevalidationNow();
 
  private:
   nsCOMPtr<nsICancelable> mProxyRequest;

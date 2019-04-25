@@ -17,7 +17,7 @@
 #include "InputData.h"                      // for InputData, etc
 #include "Layers.h"                         // for Layer, etc
 #include "mozilla/dom/MouseEventBinding.h"  // for MouseEvent constants
-#include "mozilla/dom/TabParent.h"          // for AreRecordReplayTabsActive
+#include "mozilla/dom/BrowserParent.h"      // for AreRecordReplayTabsActive
 #include "mozilla/dom/Touch.h"              // for Touch
 #include "mozilla/gfx/gfxVars.h"            // for gfxVars
 #include "mozilla/gfx/GPUParent.h"          // for GPUParent
@@ -1220,7 +1220,7 @@ nsEventStatus APZCTreeManager::ReceiveInputEvent(
   // Ignore input events when there are active tabs that are recording or
   // replaying. APZ does not work with the special layers constructed by
   // the middleman processes being communicated with here.
-  if (dom::TabParent::AreRecordReplayTabsActive()) {
+  if (dom::BrowserParent::AreRecordReplayTabsActive()) {
     return nsEventStatus_eIgnore;
   }
 
@@ -1787,12 +1787,10 @@ nsEventStatus APZCTreeManager::ProcessTouchInput(
       uint64_t inputBlockId = 0;
       result = mInputQueue->ReceiveInputEvent(
           mApzcForInputBlock, TargetConfirmationFlags{mHitResultForInputBlock},
-          aInput, &inputBlockId);
+          aInput, &inputBlockId,
+          touchBehaviors.IsEmpty() ? Nothing() : Some(touchBehaviors));
       if (aOutInputBlockId) {
         *aOutInputBlockId = inputBlockId;
-      }
-      if (!touchBehaviors.IsEmpty()) {
-        mInputQueue->SetAllowedTouchBehavior(inputBlockId, touchBehaviors);
       }
 
       // For computing the event to pass back to Gecko, use up-to-date

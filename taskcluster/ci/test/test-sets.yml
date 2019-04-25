@@ -253,12 +253,15 @@ windows-tests:
     - xpcshell
 
 windows-aarch64-tests:
+    - cppunit
     - crashtest
     - gtest
+    - jittest
     - jsreftest
     - marionette
     - marionette-headless
     - mochitest
+    - mochitest-a11y
     - mochitest-browser-chrome
     - mochitest-chrome
     - mochitest-clipboard

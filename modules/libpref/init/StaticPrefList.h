@@ -590,6 +590,14 @@ VARCACHE_PREF(
   bool, true
 )
 
+// Enable the "noreferrer" feature argument for window.open()
+VARCACHE_PREF(
+  "dom.window.open.noreferrer.enabled",
+   dom_window_open_noreferrer_enabled,
+  bool, true
+)
+
+
 //---------------------------------------------------------------------------
 // Extension prefs
 //---------------------------------------------------------------------------
@@ -1137,6 +1145,21 @@ VARCACHE_PREF(
    layout_css_shared_memory_ua_sheets_enabled,
   bool, false
 )
+
+// Pref to control whether arrow-panel animations are enabled or not.
+// Transitions are currently disabled on Linux due to rendering issues on
+// certain configurations.
+#ifdef MOZ_WIDGET_GTK
+#define PREF_VALUE false
+#else
+#define PREF_VALUE true
+#endif
+VARCACHE_PREF(
+  "xul.panel-animations.enabled",
+   xul_panel_animations_enabled,
+  bool, PREF_VALUE
+)
+#undef PREF_VALUE
 
 //---------------------------------------------------------------------------
 // JavaScript prefs

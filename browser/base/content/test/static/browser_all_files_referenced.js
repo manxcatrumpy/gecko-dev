@@ -20,6 +20,7 @@ var isDevtools = SimpleTest.harnessParameters.subsuite == "devtools";
 var gExceptionPaths = [
   "chrome://browser/content/defaultthemes/",
   "resource://app/defaults/settings/blocklists/",
+  "resource://app/defaults/settings/security-state/",
   "resource://app/defaults/settings/main/",
   "resource://app/defaults/settings/pinning/",
   "resource://app/defaults/preferences/",
@@ -125,10 +126,6 @@ var whitelist = [
   {file: "resource://app/modules/translation/BingTranslator.jsm"},
   {file: "resource://app/modules/translation/GoogleTranslator.jsm"},
   {file: "resource://app/modules/translation/YandexTranslator.jsm"},
-
-  // Used in Firefox Monitor, which is an extension - we don't check
-  // files inside the XPI.
-  {file: "resource://app/modules/EveryWindow.jsm"},
 
   // Starting from here, files in the whitelist are bugs that need fixing.
   // Bug 1339424 (wontfix?)

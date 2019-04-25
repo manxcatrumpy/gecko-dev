@@ -3412,10 +3412,11 @@ nsBrowserAccess.prototype = {
     Services.io.offline = false;
 
     let referrer;
+    let forceNoReferrer = !!(aFlags & Ci.nsIBrowserDOMWindow.OPEN_NO_REFERRER);
     if (aOpener) {
       try {
         let location = aOpener.location;
-        referrer = Services.io.newURI(location);
+        referrer = forceNoReferrer ? null : Services.io.newURI(location);
       } catch(e) { }
     }
 
@@ -3501,8 +3502,8 @@ nsBrowserAccess.prototype = {
   },
 
   openURIInFrame: function browser_openURIInFrame(aURI, aParams, aWhere, aFlags,
-                                                  aNextTabParentId, aName) {
-    // We currently ignore aNextTabParentId on mobile.  This needs to change
+                                                  aNextRemoteTabId, aName) {
+    // We currently ignore aNextRemoteTabId on mobile.  This needs to change
     // when Fennec starts to support e10s.  Assertions will fire if this code
     // isn't fixed by then.
     //
@@ -3513,7 +3514,7 @@ nsBrowserAccess.prototype = {
 
   createContentWindowInFrame: function browser_createContentWindowInFrame(
                               aURI, aParams, aWhere, aFlags,
-                              aNextTabParentId, aName) {
+                              aNextRemoteTabId, aName) {
     return this._getBrowser(null, null, aWhere, aFlags, null);
   },
 

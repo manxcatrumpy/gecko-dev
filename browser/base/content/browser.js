@@ -5646,7 +5646,7 @@ nsBrowserAccess.prototype = {
                    aIsExternal, aForceNotRemote = false,
                    aUserContextId = Ci.nsIScriptSecurityManager.DEFAULT_USER_CONTEXT_ID,
                    aOpenerWindow = null, aOpenerBrowser = null,
-                   aTriggeringPrincipal = null, aNextTabParentId = 0, aName = "", aCsp = null) {
+                   aTriggeringPrincipal = null, aNextRemoteTabId = 0, aName = "", aCsp = null) {
     let win, needToFocusWin;
 
     // try the current window.  if we're in a popup, fall back on the most recent browser window
@@ -5679,7 +5679,7 @@ nsBrowserAccess.prototype = {
                                       forceNotRemote: aForceNotRemote,
                                       opener: aOpenerWindow,
                                       openerBrowser: aOpenerBrowser,
-                                      nextTabParentId: aNextTabParentId,
+                                      nextRemoteTabId: aNextRemoteTabId,
                                       name: aName,
                                       csp: aCsp,
                                       });
@@ -5749,8 +5749,13 @@ nsBrowserAccess.prototype = {
         aWhere = Services.prefs.getIntPref("browser.link.open_newwindow");
     }
 
-    let referrerInfo = new ReferrerInfo(Ci.nsIHttpChannel.REFERRER_POLICY_UNSET, true,
-      aOpener ? makeURI(aOpener.location.href) : null);
+    let referrerInfo;
+    if (aFlags & Ci.nsIBrowserDOMWindow.OPEN_NO_REFERRER) {
+      referrerInfo = new ReferrerInfo(Ci.nsIHttpChannel.REFERRER_POLICY_UNSET, false, null);
+    } else {
+      referrerInfo = new ReferrerInfo(Ci.nsIHttpChannel.REFERRER_POLICY_UNSET, true,
+        aOpener ? makeURI(aOpener.location.href) : null);
+    }
     if (aOpener && aOpener.document) {
       referrerInfo.referrerPolicy = aOpener.document.referrerPolicy;
     }
@@ -5818,22 +5823,22 @@ nsBrowserAccess.prototype = {
   },
 
   createContentWindowInFrame: function browser_createContentWindowInFrame(
-                              aURI, aParams, aWhere, aFlags, aNextTabParentId,
+                              aURI, aParams, aWhere, aFlags, aNextRemoteTabId,
                               aName) {
     // Passing a null-URI to only create the content window.
     return this.getContentWindowOrOpenURIInFrame(null, aParams, aWhere, aFlags,
-                                                 aNextTabParentId, aName);
+                                                 aNextRemoteTabId, aName);
   },
 
   openURIInFrame: function browser_openURIInFrame(aURI, aParams, aWhere, aFlags,
-                                                  aNextTabParentId, aName) {
+                                                  aNextRemoteTabId, aName) {
     return this.getContentWindowOrOpenURIInFrame(aURI, aParams, aWhere, aFlags,
-                                                 aNextTabParentId, aName);
+                                                 aNextRemoteTabId, aName);
   },
 
   getContentWindowOrOpenURIInFrame: function browser_getContentWindowOrOpenURIInFrame(
                                     aURI, aParams, aWhere, aFlags,
-                                    aNextTabParentId, aName) {
+                                    aNextRemoteTabId, aName) {
     if (aWhere != Ci.nsIBrowserDOMWindow.OPEN_NEWTAB) {
       dump("Error: openURIInFrame can only open in new tabs");
       return null;
@@ -5852,7 +5857,7 @@ nsBrowserAccess.prototype = {
                                  isExternal, false,
                                  userContextId, null, aParams.openerBrowser,
                                  aParams.triggeringPrincipal,
-                                 aNextTabParentId, aName, aParams.csp);
+                                 aNextRemoteTabId, aName, aParams.csp);
   },
 
   isTabContentWindow(aWindow) {
@@ -5951,6 +5956,12 @@ function onViewToolbarsPopupShowing(aEvent, aInsertPoint) {
     document.getElementById("toolbar-context-selectAllTabs").disabled = gBrowser.allTabsSelected();
     document.getElementById("toolbar-context-undoCloseTab").disabled =
       SessionStore.getClosedTabCount(window) == 0;
+
+    MozXULElement.insertFTLIfNeeded("browser/toolbarContextMenu.ftl");
+    document.getElementById("toolbar-context-menu").querySelectorAll("[data-lazy-l10n-id]").forEach(el => {
+      el.setAttribute("data-l10n-id", el.getAttribute("data-lazy-l10n-id"));
+      el.removeAttribute("data-lazy-l10n-id");
+    });
     return;
   }
 

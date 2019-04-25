@@ -229,7 +229,7 @@
 #include "mozilla/dom/PopupBlockedEvent.h"
 #include "mozilla/dom/PrimitiveConversions.h"
 #include "mozilla/dom/WindowBinding.h"
-#include "nsITabChild.h"
+#include "nsIBrowserChild.h"
 #include "mozilla/dom/MediaQueryList.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/NavigatorBinding.h"
@@ -2565,18 +2565,19 @@ void nsGlobalWindowOuter::UpdateParentTarget() {
   // handler itself.
 
   nsCOMPtr<Element> frameElement = GetFrameElementInternal();
-  mMessageManager = nsContentUtils::TryGetTabChildGlobal(frameElement);
+  mMessageManager = nsContentUtils::TryGetBrowserChildGlobal(frameElement);
 
   if (!mMessageManager) {
     nsGlobalWindowOuter* topWin = GetScriptableTopInternal();
     if (topWin) {
       frameElement = topWin->GetFrameElementInternal();
-      mMessageManager = nsContentUtils::TryGetTabChildGlobal(frameElement);
+      mMessageManager = nsContentUtils::TryGetBrowserChildGlobal(frameElement);
     }
   }
 
   if (!mMessageManager) {
-    mMessageManager = nsContentUtils::TryGetTabChildGlobal(mChromeEventHandler);
+    mMessageManager =
+        nsContentUtils::TryGetBrowserChildGlobal(mChromeEventHandler);
   }
 
   if (mMessageManager) {
@@ -4651,7 +4652,7 @@ bool nsGlobalWindowOuter::CanMoveResizeWindows(CallerType aCallerType) {
     if (XRE_IsContentProcess()) {
       nsCOMPtr<nsIDocShell> docShell = GetDocShell();
       if (docShell) {
-        nsCOMPtr<nsITabChild> child = docShell->GetTabChild();
+        nsCOMPtr<nsIBrowserChild> child = docShell->GetBrowserChild();
         bool hasSiblings = true;
         if (child && NS_SUCCEEDED(child->GetHasSiblings(&hasSiblings)) &&
             hasSiblings) {
@@ -6314,7 +6315,7 @@ void nsGlobalWindowOuter::EnterModalState() {
                                 mDoc, activePresShell->GetDocument()))) {
       EventStateManager::ClearGlobalActiveContent(activeESM);
 
-      nsIPresShell::SetCapturingContent(nullptr, 0);
+      PresShell::ReleaseCapturingContent();
 
       if (activePresShell) {
         RefPtr<nsFrameSelection> frameSelection =
@@ -6338,7 +6339,7 @@ void nsGlobalWindowOuter::EnterModalState() {
   nsIContent* capturingContent = nsIPresShell::GetCapturingContent();
   if (capturingContent && topDoc &&
       nsContentUtils::ContentIsCrossDocDescendantOf(capturingContent, topDoc)) {
-    nsIPresShell::SetCapturingContent(nullptr, 0);
+    PresShell::ReleaseCapturingContent();
   }
 
   if (topWin->mModalStateDepth == 0) {
@@ -6464,19 +6465,19 @@ Element* nsGlobalWindowOuter::GetFrameElement() {
 namespace {
 class ChildCommandDispatcher : public Runnable {
  public:
-  ChildCommandDispatcher(nsPIWindowRoot* aRoot, nsITabChild* aTabChild,
+  ChildCommandDispatcher(nsPIWindowRoot* aRoot, nsIBrowserChild* aBrowserChild,
                          const nsAString& aAction)
       : mozilla::Runnable("ChildCommandDispatcher"),
         mRoot(aRoot),
-        mTabChild(aTabChild),
+        mBrowserChild(aBrowserChild),
         mAction(aAction) {}
 
   NS_IMETHOD Run() override {
     nsTArray<nsCString> enabledCommands, disabledCommands;
     mRoot->GetEnabledDisabledCommands(enabledCommands, disabledCommands);
     if (enabledCommands.Length() || disabledCommands.Length()) {
-      mTabChild->EnableDisableCommands(mAction, enabledCommands,
-                                       disabledCommands);
+      mBrowserChild->EnableDisableCommands(mAction, enabledCommands,
+                                           disabledCommands);
     }
 
     return NS_OK;
@@ -6484,7 +6485,7 @@ class ChildCommandDispatcher : public Runnable {
 
  private:
   nsCOMPtr<nsPIWindowRoot> mRoot;
-  nsCOMPtr<nsITabChild> mTabChild;
+  nsCOMPtr<nsIBrowserChild> mBrowserChild;
   nsString mAction;
 };
 
@@ -6507,7 +6508,7 @@ void nsGlobalWindowOuter::UpdateCommands(const nsAString& anAction,
                                          Selection* aSel, int16_t aReason) {
   // If this is a child process, redirect to the parent process.
   if (nsIDocShell* docShell = GetDocShell()) {
-    if (nsCOMPtr<nsITabChild> child = docShell->GetTabChild()) {
+    if (nsCOMPtr<nsIBrowserChild> child = docShell->GetBrowserChild()) {
       nsCOMPtr<nsPIWindowRoot> root = GetTopWindowRoot();
       if (root) {
         nsContentUtils::AddScriptRunner(
@@ -7070,6 +7071,7 @@ nsresult nsGlobalWindowOuter::OpenInternal(
 
   nsAutoCString options;
   bool forceNoOpener = aForceNoOpener;
+  bool forceNoReferrer = false;
   // Unlike other window flags, "noopener" comes from splitting on commas with
   // HTML whitespace trimming...
   nsCharSeparatedTokenizerTemplate<nsContentUtils::IsHTMLWhitespace> tok(
@@ -7077,6 +7079,13 @@ nsresult nsGlobalWindowOuter::OpenInternal(
   while (tok.hasMoreTokens()) {
     auto nextTok = tok.nextToken();
     if (nextTok.EqualsLiteral("noopener")) {
+      forceNoOpener = true;
+      continue;
+    }
+    if (StaticPrefs::dom_window_open_noreferrer_enabled() &&
+        nextTok.LowerCaseEqualsLiteral("noreferrer")) {
+      forceNoReferrer = true;
+      // noreferrer implies noopener
       forceNoOpener = true;
       continue;
     }
@@ -7185,7 +7194,7 @@ nsresult nsGlobalWindowOuter::OpenInternal(
       rv = pwwatch->OpenWindow2(
           this, url.IsVoid() ? nullptr : url.get(), name_ptr, options_ptr,
           /* aCalledFromScript = */ true, aDialog, aNavigate, argv,
-          isPopupSpamWindow, forceNoOpener, aLoadState,
+          isPopupSpamWindow, forceNoOpener, forceNoReferrer, aLoadState,
           getter_AddRefs(domReturn));
     } else {
       // Force a system caller here so that the window watcher won't screw us
@@ -7205,7 +7214,7 @@ nsresult nsGlobalWindowOuter::OpenInternal(
       rv = pwwatch->OpenWindow2(
           this, url.IsVoid() ? nullptr : url.get(), name_ptr, options_ptr,
           /* aCalledFromScript = */ false, aDialog, aNavigate, aExtraArgument,
-          isPopupSpamWindow, forceNoOpener, aLoadState,
+          isPopupSpamWindow, forceNoOpener, forceNoReferrer, aLoadState,
           getter_AddRefs(domReturn));
     }
   }

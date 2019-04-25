@@ -2039,8 +2039,8 @@ class MachineStackTracker {
   // Mark the stack slot |offsetFromSP| up from the bottom as holding a
   // pointer.
   void setGCPointer(size_t offsetFromSP) {
-    // Offset 0 is the most recently pushed, offset 1 is the second most
-    // recently pushed item, etc.
+    // offsetFromSP == 0 denotes the most recently pushed item, == 1 the
+    // second most recently pushed item, etc.
     MOZ_ASSERT(offsetFromSP < vec_.length());
 
     size_t offsetFromTop = vec_.length() - 1 - offsetFromSP;
@@ -2051,7 +2051,9 @@ class MachineStackTracker {
   // Query the pointerness of the slot |offsetFromSP| up from the bottom.
   bool isGCPointer(size_t offsetFromSP) {
     MOZ_ASSERT(offsetFromSP < vec_.length());
-    return vec_[offsetFromSP];
+
+    size_t offsetFromTop = vec_.length() - 1 - offsetFromSP;
+    return vec_[offsetFromTop];
   }
 
   // Return the number of words tracked by this MachineStackTracker.
@@ -2358,7 +2360,7 @@ struct StackMapGenerator {
     // Followed by the "main" part of the map.
     for (uint32_t i = 0; i < augmentedMstWords; i++) {
       if (augmentedMst.isGCPointer(i)) {
-        stackMap->setBit(numMappedWords - 1 - i);
+        stackMap->setBit(extraWords + i);
       }
     }
 
@@ -4154,6 +4156,17 @@ class BaseCompiler final : public BaseCompilerInterface {
       return false;
     }
 
+    // Locals are stack allocated.  Mark ref-typed ones in the stackmap
+    // accordingly.
+    for (const Local& l : localInfo_) {
+      if (l.type == MIRType::RefOrNull) {
+        uint32_t offs = fr.localOffset(l);
+        MOZ_ASSERT(0 == (offs % sizeof(void*)));
+        stackMapGenerator_.machineStackTracker
+                          .setGCPointer(offs / sizeof(void*));
+      }
+    }
+
     // Copy arguments from registers to stack.
     for (ABIArgIter<const ValTypeVector> i(args); !i.done(); i++) {
       if (!i->argInRegister()) {
@@ -4168,11 +4181,12 @@ class BaseCompiler final : public BaseCompilerInterface {
           fr.storeLocalI64(RegI64(i->gpr64()), l);
           break;
         case MIRType::RefOrNull: {
-          uint32_t offs = fr.localOffset(l);
+          DebugOnly<uint32_t> offs = fr.localOffset(l);
           MOZ_ASSERT(0 == (offs % sizeof(void*)));
           fr.storeLocalPtr(RegPtr(i->gpr()), l);
-          stackMapGenerator_.machineStackTracker.setGCPointer(offs /
-                                                              sizeof(void*));
+          // We should have just visited this local in the preceding loop.
+          MOZ_ASSERT(stackMapGenerator_.machineStackTracker
+                                       .isGCPointer(offs / sizeof(void*)));
           break;
         }
         case MIRType::Double:
