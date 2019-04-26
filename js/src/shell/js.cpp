@@ -9721,18 +9721,12 @@ static const JSJitInfo doFoo_methodinfo = {
 };
 
 static const JSPropertySpec dom_props[] = {
-    {
-        "x",
-        JSPROP_ENUMERATE,
-        {{{{dom_genericGetter, &dom_x_getterinfo}},
-          {{dom_genericSetter, &dom_x_setterinfo}}}},
-    },
-    {
-        "global",
-        JSPROP_ENUMERATE,
-        {{{{dom_genericGetter, &dom_global_getterinfo}},
-          {{dom_genericSetter, &dom_global_setterinfo}}}},
-    },
+    JSPropertySpec::nativeAccessors("x", JSPROP_ENUMERATE, dom_genericGetter,
+                                    &dom_x_getterinfo, dom_genericSetter,
+                                    &dom_x_setterinfo),
+    JSPropertySpec::nativeAccessors("global", JSPROP_ENUMERATE,
+                                    dom_genericGetter, &dom_global_getterinfo,
+                                    dom_genericSetter, &dom_global_setterinfo),
     JS_PS_END};
 
 static const JSFunctionSpec dom_methods[] = {
@@ -9921,7 +9915,7 @@ static JSObject* NewGlobalObject(JSContext* cx, JS::RealmOptions& options,
                "having its [[Prototype]] be immutable");
 
 #ifdef JS_HAS_CTYPES
-    if (!JS_InitCTypesClass(cx, glob)) {
+    if (!fuzzingSafe && !JS_InitCTypesClass(cx, glob)) {
       return nullptr;
     }
 #endif
@@ -10542,7 +10536,6 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
   reportWarnings = op.getBoolOption('w');
   compileOnly = op.getBoolOption('c');
   printTiming = op.getBoolOption('b');
-  enableCodeCoverage = op.getBoolOption("code-coverage");
   enableDisassemblyDumps = op.getBoolOption('D');
   cx->runtime()->profilingScripts =
       enableCodeCoverage || enableDisassemblyDumps;
@@ -11226,6 +11219,11 @@ int main(int argc, char** argv, char** envp) {
 
   if (op.getBoolOption("no-threads")) {
     js::DisableExtraThreads();
+  }
+
+  enableCodeCoverage = op.getBoolOption("code-coverage");
+  if (enableCodeCoverage) {
+    coverage::EnableLCov();
   }
 
   AutoLibraryLoader loader;

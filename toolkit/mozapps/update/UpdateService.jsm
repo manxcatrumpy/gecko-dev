@@ -3228,6 +3228,8 @@ UpdateManager.prototype = {
         handleFallbackToCompleteUpdate(update, true);
       }
 
+      // This can be removed after the update ui under update/content is
+      // removed.
       update.QueryInterface(Ci.nsIWritablePropertyBag);
       update.setProperty("stagingFailed", "true");
     }
@@ -3700,7 +3702,7 @@ Downloader.prototype = {
    * The name of the downloader being used to download the update. This is used
    * when setting property names on the update patch for telemetry.
    */
-  _downloaderName: "bits",
+  _downloaderName: null,
 
   /**
    * Cancels the active download.
@@ -3821,12 +3823,20 @@ Downloader.prototype = {
         return null;
       }
 
+      // When downloading the patch failed using BITS, there hasn't been an
+      // attempt to download the patch using the internal application download
+      // mechanism, and an attempt to stage or apply the patch hasn't failed
+      // which indicates that a different patch should be downloaded since
+      // re-downloading the same patch with the internal application download
+      // mechanism will likely also fail when trying to stage or apply it then
+      // try to download the same patch using the internal application download
+      // mechanism.
       selectedPatch.QueryInterface(Ci.nsIWritablePropertyBag);
       if (selectedPatch.getProperty("bitsResult") != null &&
           selectedPatch.getProperty("internalResult") == null &&
-          selectedPatch.getProperty("stagingFailed") == null) {
+          !selectedPatch.errorCode) {
         LOG("Downloader:_selectPatch - Falling back to non-BITS download " +
-            "mechanism due to existing BITS result: " +
+            "mechanism for the same patch due to existing BITS result: " +
             selectedPatch.getProperty("bitsResult"));
         return selectedPatch;
       }
@@ -3948,9 +3958,8 @@ Downloader.prototype = {
     if (this._update.getProperty("disableBITS") != null) {
       canUseBits = false;
     }
-    if (!canUseBits) {
-      this._downloaderName = "internal";
-    }
+
+    this._downloaderName = canUseBits ? "bits" : "internal";
     if (!this._patch.getProperty(this._downloaderName + "DownloadStart")) {
       this._patch.setProperty(this._downloaderName + "DownloadStart", Math.floor(Date.now() / 1000));
     }

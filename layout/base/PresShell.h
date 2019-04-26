@@ -115,12 +115,8 @@ class PresShell final : public nsIPresShell,
 
   void UnsuppressPainting() override;
 
-  nsresult GetAgentStyleSheets(nsTArray<RefPtr<StyleSheet>>& aSheets) override;
-  nsresult SetAgentStyleSheets(
-      const nsTArray<RefPtr<StyleSheet>>& aSheets) override;
-
-  nsresult AddOverrideStyleSheet(StyleSheet* aSheet) override;
-  nsresult RemoveOverrideStyleSheet(StyleSheet* aSheet) override;
+  nsresult AddOverrideStyleSheet(StyleSheet*) override;
+  nsresult RemoveOverrideStyleSheet(StyleSheet*) override;
 
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   nsresult HandleEventWithTarget(
@@ -502,6 +498,11 @@ class PresShell final : public nsIPresShell,
   static void ReleaseCapturingContent() {
     PresShell::SetCapturingContent(nullptr, CaptureFlags::None);
   }
+
+  // Called at the end of nsLayoutUtils::PaintFrame().
+  // This is used to clear any pending visual scroll updates that have been
+  // acknowledged, to make sure they don't stick around for the next paint.
+  void EndPaint();
 
  private:
   ~PresShell();
