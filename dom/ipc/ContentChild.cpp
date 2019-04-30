@@ -254,6 +254,7 @@
 #include "GMPServiceChild.h"
 #include "GfxInfoBase.h"
 #include "gfxPlatform.h"
+#include "gfxPlatformFontList.h"
 #include "nscore.h"  // for NS_FREE_PERMANENT_DATA
 #include "VRManagerChild.h"
 #include "private/pprio.h"
@@ -2483,6 +2484,12 @@ mozilla::ipc::IPCResult ContentChild::RecvUpdateSharedData(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult ContentChild::RecvFontListChanged() {
+  gfxPlatformFontList::PlatformFontList()->FontListChanged();
+
+  return IPC_OK();
+}
+
 mozilla::ipc::IPCResult ContentChild::RecvGeolocationUpdate(
     nsIDOMGeoPosition* aPosition) {
   RefPtr<nsGeolocationService> gs =
@@ -2515,6 +2522,11 @@ mozilla::ipc::IPCResult ContentChild::RecvUpdateDictionaryList(
 mozilla::ipc::IPCResult ContentChild::RecvUpdateFontList(
     InfallibleTArray<SystemFontListEntry>&& aFontList) {
   mFontList = std::move(aFontList);
+  gfxPlatform::GetPlatform()->UpdateFontList();
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvRebuildFontList() {
   gfxPlatform::GetPlatform()->UpdateFontList();
   return IPC_OK();
 }
@@ -3764,14 +3776,35 @@ mozilla::ipc::IPCResult ContentChild::RecvAttachBrowsingContext(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvDetachBrowsingContext(
-    BrowsingContext* aContext, bool aMoveToBFCache) {
+    BrowsingContext* aContext) {
   MOZ_RELEASE_ASSERT(aContext);
 
-  if (aMoveToBFCache) {
-    aContext->CacheChildren(/* aFromIPC */ true);
-  } else {
-    aContext->Detach(/* aFromIPC */ true);
+  aContext->Detach(/* aFromIPC */ true);
+
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvCacheBrowsingContextChildren(
+    BrowsingContext* aContext) {
+  MOZ_RELEASE_ASSERT(aContext);
+
+  aContext->CacheChildren(/* aFromIPC */ true);
+
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvRestoreBrowsingContextChildren(
+    BrowsingContext* aContext, nsTArray<BrowsingContextId>&& aChildren) {
+  MOZ_DIAGNOSTIC_ASSERT(aContext);
+
+  BrowsingContext::Children children(aChildren.Length());
+
+  for (auto id : aChildren) {
+    RefPtr<BrowsingContext> child = BrowsingContext::Get(id);
+    children.AppendElement(child);
   }
+
+  aContext->RestoreChildren(std::move(children), /* aFromIPC */ true);
 
   return IPC_OK();
 }
@@ -3791,11 +3824,17 @@ mozilla::ipc::IPCResult ContentChild::RecvRegisterBrowsingContextGroup(
     MOZ_ASSERT_IF(parent, parent->Group() == group);
 #endif
 
+    bool cached = init.mCached;
     RefPtr<BrowsingContext> ctxt =
         BrowsingContext::CreateFromIPC(std::move(init), group, nullptr);
 
-    // FIXME: We should deal with cached & detached contexts as well.
-    ctxt->Attach(/* aFromIPC */ true);
+    // If the browsing context is cached don't attach it, but add it
+    // to the cache here as well
+    if (cached) {
+      ctxt->Group()->CacheContext(ctxt);
+    } else {
+      ctxt->Attach(/* aFromIPC */ true);
+    }
   }
 
   return IPC_OK();
