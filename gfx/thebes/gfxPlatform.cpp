@@ -70,6 +70,10 @@
 #  include "mozilla/gfx/DeviceManagerDx.h"
 #endif
 
+#ifdef MOZ_WAYLAND
+#  include "mozilla/widget/nsWaylandDisplayShutdown.h"
+#endif
+
 #include "nsGkAtoms.h"
 #include "gfxPlatformFontList.h"
 #include "gfxContext.h"
@@ -1292,6 +1296,9 @@ void gfxPlatform::ShutdownLayersIPC() {
       layers::PaintThread::Shutdown();
     }
   } else if (XRE_IsParentProcess()) {
+#ifdef MOZ_WAYLAND
+    widget::WaylandDisplayShutdown();
+#endif
     gfx::VRManagerChild::ShutDown();
     layers::CompositorManagerChild::Shutdown();
     layers::ImageBridgeChild::ShutDown();
@@ -2636,7 +2643,7 @@ static FeatureState& WebRenderHardwareQualificationStatus(
                 FeatureStatus::Blocked, "Device too old",
                 NS_LITERAL_CSTRING("FEATURE_FAILURE_DEVICE_TOO_OLD"));
           }
-#ifdef NIGHTLY_BUILD
+#ifdef EARLY_BETA_OR_EARLIER
         } else if (adapterVendorID == u"0x1002") {  // AMD
           // AMD deviceIDs are not very well ordered. This
           // condition is based off the information in gpu-db
@@ -2654,6 +2661,8 @@ static FeatureState& WebRenderHardwareQualificationStatus(
                 FeatureStatus::Blocked, "Device too old",
                 NS_LITERAL_CSTRING("FEATURE_FAILURE_DEVICE_TOO_OLD"));
           }
+#endif
+#ifdef NIGHTLY_BUILD
         } else if (adapterVendorID == u"0x8086" ||
                    adapterVendorID == u"mesa/i965") {  // Intel
           const uint16_t supportedDevices[] = {
