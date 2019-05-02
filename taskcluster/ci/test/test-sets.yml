@@ -28,7 +28,6 @@ common-tests:
     - mochitest-a11y
     - mochitest-browser-chrome
     - mochitest-chrome
-    - mochitest-clipboard
     - mochitest-devtools-chrome
     - mochitest-gpu
     - mochitest-media
@@ -97,6 +96,10 @@ raptor-firefox:
     - raptor-webaudio-firefox
     - raptor-sunspider-firefox
     - raptor-wasm-godot-firefox
+    - raptor-tp6-1-firefox-cold
+    - raptor-tp6-2-firefox-cold
+    - raptor-tp6-3-firefox-cold
+    - raptor-tp6-4-firefox-cold
 
 raptor-profiling:
     - raptor-tp6-1-firefox-profiling
@@ -135,6 +138,10 @@ raptor-chromium:
     - raptor-webaudio-chromium
     - raptor-sunspider-chromium
     - raptor-wasm-godot-chromium
+    - raptor-tp6-1-chromium-cold
+    - raptor-tp6-2-chromium-cold
+    - raptor-tp6-3-chromium-cold
+    - raptor-tp6-4-chromium-cold
 
 # Fetch tasks are only supported on Linux for now,
 # so these need to be separate sets.
@@ -235,7 +242,6 @@ windows-tests:
     - mochitest-a11y
     - mochitest-browser-chrome
     - mochitest-chrome
-    - mochitest-clipboard
     - mochitest-devtools-chrome
     - mochitest-gpu
     - mochitest-media
@@ -261,7 +267,6 @@ windows-aarch64-tests:
     - mochitest-a11y
     - mochitest-browser-chrome
     - mochitest-chrome
-    - mochitest-clipboard
     - mochitest-devtools-chrome
     - mochitest-gpu
     - mochitest-media
@@ -311,7 +316,6 @@ macosx64-tests:
     - mochitest-a11y
     - mochitest-browser-chrome
     - mochitest-chrome
-    - mochitest-clipboard
     - mochitest-devtools-chrome
     - mochitest-devtools-webreplay
     - mochitest-gpu
@@ -364,7 +368,6 @@ linux32-tests:
     - mochitest-a11y
     - mochitest-browser-chrome
     - mochitest-chrome
-    - mochitest-clipboard
     - mochitest-gpu
     - mochitest-media
     - mochitest-webgl1-core
@@ -391,7 +394,6 @@ android-common-tests:
     - jsreftest
     - mochitest
     - mochitest-chrome
-    - mochitest-clipboard
     - mochitest-gpu
     - mochitest-media
     - reftest
@@ -416,7 +418,6 @@ android-x86_64-tests:
     - cppunit
     - jsreftest
     - marionette
-    - mochitest-clipboard
     - mochitest-gpu
     # various reftest (plain) failures; bug 1501582
     # - reftest

@@ -309,7 +309,7 @@ static const float MallocThresholdShrinkFactor = 0.9f;
 /* no parameter */
 static const size_t MallocThresholdLimit = 1024 * 1024 * 1024;
 
-/* no parameter */
+/* JSGC_ZONE_ALLOC_DELAY_KB */
 static const size_t ZoneAllocDelayBytes = 1024 * 1024;
 
 /* JSGC_DYNAMIC_HEAP_GROWTH */
@@ -1388,8 +1388,8 @@ bool GCRuntime::setParameter(JSGCParamKey key, uint32_t value,
         return false;
       }
       for (ZonesIter zone(rt, WithAtoms); !zone.done(); zone.next()) {
-        zone->threshold.updateAfterGC(zone->zoneSize.gcBytes(), GC_NORMAL,
-                                      tunables, schedulingState, lock);
+        zone->threshold.updateAfterGC(zone->totalBytes(), GC_NORMAL, tunables,
+                                      schedulingState, lock);
       }
   }
 
@@ -1529,6 +1529,9 @@ bool GCSchedulingTunables::setParameter(JSGCParamKey key, uint32_t value,
     case JSGC_MIN_LAST_DITCH_GC_PERIOD:
       minLastDitchGCPeriod_ = TimeDuration::FromSeconds(value);
       break;
+    case JSGC_ZONE_ALLOC_DELAY_KB:
+      zoneAllocDelayBytes_ = value * 1024;
+      break;
     default:
       MOZ_CRASH("Unknown GC parameter.");
   }
@@ -1644,8 +1647,8 @@ void GCRuntime::resetParameter(JSGCParamKey key, AutoLockGC& lock) {
     default:
       tunables.resetParameter(key, lock);
       for (ZonesIter zone(rt, WithAtoms); !zone.done(); zone.next()) {
-        zone->threshold.updateAfterGC(zone->zoneSize.gcBytes(), GC_NORMAL,
-                                      tunables, schedulingState, lock);
+        zone->threshold.updateAfterGC(zone->totalBytes(), GC_NORMAL, tunables,
+                                      schedulingState, lock);
       }
   }
 }
@@ -1719,6 +1722,9 @@ void GCSchedulingTunables::resetParameter(JSGCParamKey key,
       break;
     case JSGC_MIN_LAST_DITCH_GC_PERIOD:
       minLastDitchGCPeriod_ = TuningDefaults::MinLastDitchGCPeriod;
+      break;
+    case JSGC_ZONE_ALLOC_DELAY_KB:
+      zoneAllocDelayBytes_ = TuningDefaults::ZoneAllocDelayBytes;
       break;
     default:
       MOZ_CRASH("Unknown GC parameter.");
@@ -1797,6 +1803,8 @@ uint32_t GCRuntime::getParameter(JSGCParamKey key, const AutoLockGC& lock) {
       return tunables.pretenureGroupThreshold();
     case JSGC_MIN_LAST_DITCH_GC_PERIOD:
       return tunables.minLastDitchGCPeriod().ToSeconds();
+    case JSGC_ZONE_ALLOC_DELAY_KB:
+      return tunables.zoneAllocDelayBytes() / 1024;
     default:
       MOZ_CRASH("Unknown parameter key");
   }
@@ -3335,7 +3343,7 @@ bool GCRuntime::triggerGC(JS::GCReason reason) {
   return true;
 }
 
-void GCRuntime::maybeAllocTriggerZoneGC(Zone* zone, const AutoLockGC& lock) {
+void GCRuntime::maybeAllocTriggerZoneGC(Zone* zone) {
   if (!CurrentThreadCanAccessRuntime(rt)) {
     // Zones in use by a helper thread can't be collected.
     MOZ_ASSERT(zone->usedByHelperThread() || zone->isAtomsZone());
@@ -3344,7 +3352,7 @@ void GCRuntime::maybeAllocTriggerZoneGC(Zone* zone, const AutoLockGC& lock) {
 
   MOZ_ASSERT(!JS::RuntimeHeapIsCollecting());
 
-  size_t usedBytes = zone->zoneSize.gcBytes();
+  size_t usedBytes = zone->totalBytes();
   size_t thresholdBytes = zone->threshold.gcTriggerBytes();
 
   if (usedBytes >= thresholdBytes) {
@@ -3442,7 +3450,7 @@ void GCRuntime::maybeGC(Zone* zone) {
 
   float threshold = zone->threshold.eagerAllocTrigger(
       schedulingState.inHighFrequencyGCMode());
-  float usedBytes = zone->zoneSize.gcBytes();
+  float usedBytes = zone->totalBytes();
   if (usedBytes > 1024 * 1024 && usedBytes >= threshold &&
       !isIncrementalGCInProgress() && !isBackgroundSweeping()) {
     stats().recordTrigger(usedBytes, threshold);
@@ -5799,8 +5807,8 @@ IncrementalProgress GCRuntime::endSweepingSweepGroup(FreeOp* fop,
   for (SweepGroupZonesIter zone(rt); !zone.done(); zone.next()) {
     AutoLockGC lock(rt);
     zone->changeGCState(Zone::Sweep, Zone::Finished);
-    zone->threshold.updateAfterGC(zone->zoneSize.gcBytes(), invocationKind,
-                                  tunables, schedulingState, lock);
+    zone->threshold.updateAfterGC(zone->totalBytes(), invocationKind, tunables,
+                                  schedulingState, lock);
     zone->updateAllGCMallocCountersOnGCEnd(lock);
     zone->arenas.unmarkPreMarkedFreeCells();
   }
@@ -7292,7 +7300,7 @@ GCRuntime::IncrementalResult GCRuntime::budgetIncrementalGC(
       continue;
     }
 
-    if (zone->zoneSize.gcBytes() >= zone->threshold.gcTriggerBytes()) {
+    if (zone->totalBytes() >= zone->threshold.gcTriggerBytes()) {
       CheckZoneIsScheduled(zone, reason, "GC bytes");
       budget.makeUnlimited();
       stats().nonincremental(AbortReason::GCBytesTrigger);
@@ -7345,7 +7353,7 @@ static void ScheduleZones(GCRuntime* gc) {
 
     // This is a heuristic to reduce the total number of collections.
     bool inHighFrequencyMode = gc->schedulingState.inHighFrequencyGCMode();
-    if (zone->zoneSize.gcBytes() >=
+    if (zone->totalBytes() >=
         zone->threshold.eagerAllocTrigger(inHighFrequencyMode)) {
       zone->scheduleGC();
     }
@@ -7867,11 +7875,8 @@ void GCRuntime::minorGC(JS::GCReason reason, gcstats::PhaseKind phase) {
   }
 #endif
 
-  {
-    AutoLockGC lock(rt);
-    for (ZonesIter zone(rt, WithAtoms); !zone.done(); zone.next()) {
-      maybeAllocTriggerZoneGC(zone, lock);
-    }
+  for (ZonesIter zone(rt, WithAtoms); !zone.done(); zone.next()) {
+    maybeAllocTriggerZoneGC(zone);
   }
 }
 
@@ -8055,9 +8060,7 @@ Realm* js::NewRealm(JSContext* cx, JSPrincipals* principals,
 void gc::MergeRealms(Realm* source, Realm* target) {
   JSRuntime* rt = source->runtimeFromMainThread();
   rt->gc.mergeRealms(source, target);
-
-  AutoLockGC lock(rt);
-  rt->gc.maybeAllocTriggerZoneGC(target->zone(), lock);
+  rt->gc.maybeAllocTriggerZoneGC(target->zone());
 }
 
 void GCRuntime::mergeRealms(Realm* source, Realm* target) {

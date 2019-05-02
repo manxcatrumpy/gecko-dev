@@ -67,21 +67,21 @@ nsNotifyAddrListener::~nsNotifyAddrListener() {
 }
 
 NS_IMETHODIMP
-nsNotifyAddrListener::GetIsLinkUp(bool *aIsUp) {
+nsNotifyAddrListener::GetIsLinkUp(bool* aIsUp) {
   // XXX This function has not yet been implemented for this platform
   *aIsUp = mLinkUp;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsNotifyAddrListener::GetLinkStatusKnown(bool *aIsUp) {
+nsNotifyAddrListener::GetLinkStatusKnown(bool* aIsUp) {
   // XXX This function has not yet been implemented for this platform
   *aIsUp = mStatusKnown;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsNotifyAddrListener::GetLinkType(uint32_t *aLinkType) {
+nsNotifyAddrListener::GetLinkType(uint32_t* aLinkType) {
   NS_ENSURE_ARG_POINTER(aLinkType);
 
   // XXX This function has not yet been implemented for this platform
@@ -97,15 +97,15 @@ nsNotifyAddrListener::GetLinkType(uint32_t *aLinkType) {
 // information leakage).
 //
 void nsNotifyAddrListener::calculateNetworkId(void) {
-  const char *kProcRoute = "/proc/net/route"; /* IPv4 routes */
-  const char *kProcArp = "/proc/net/arp";
+  const char* kProcRoute = "/proc/net/route"; /* IPv4 routes */
+  const char* kProcArp = "/proc/net/arp";
   bool found = false;
 
-  FILE *froute = fopen(kProcRoute, "r");
+  FILE* froute = fopen(kProcRoute, "r");
   if (froute) {
     char buffer[512];
     uint32_t gw = 0;
-    char *l = fgets(buffer, sizeof(buffer), froute);
+    char* l = fgets(buffer, sizeof(buffer), froute);
     if (l) {
       /* skip the title line  */
       while (l) {
@@ -131,7 +131,7 @@ void nsNotifyAddrListener::calculateNetworkId(void) {
       SprintfLiteral(searchfor, "%d.%d.%d.%d", gw & 0xff, (gw >> 8) & 0xff,
                      (gw >> 16) & 0xff, gw >> 24);
 
-      FILE *farp = fopen(kProcArp, "r");
+      FILE* farp = fopen(kProcArp, "r");
       if (farp) {
         l = fgets(buffer, sizeof(buffer), farp);
         while (l) {
@@ -159,7 +159,7 @@ void nsNotifyAddrListener::calculateNetworkId(void) {
                 sha1.update(combined.get(), combined.Length());
                 uint8_t digest[SHA1Sum::kHashSize];
                 sha1.finish(digest);
-                nsCString newString(reinterpret_cast<char *>(digest),
+                nsCString newString(reinterpret_cast<char*>(digest),
                                     SHA1Sum::kHashSize);
                 nsresult rv = Base64Encode(newString, output);
                 MOZ_RELEASE_ASSERT(NS_SUCCEEDED(rv));
@@ -197,8 +197,8 @@ void nsNotifyAddrListener::checkLink(void)
     // b2g instead has NetworkManager.js which handles UP/DOWN
 #else
 
-  struct ifaddrs *list;
-  struct ifaddrs *ifa;
+  struct ifaddrs* list;
+  struct ifaddrs* ifa;
   bool link = false;
   bool prevLinkUp = mLinkUp;
 
@@ -231,15 +231,15 @@ void nsNotifyAddrListener::checkLink(void)
 }
 
 void nsNotifyAddrListener::OnNetlinkMessage(int aNetlinkSocket) {
-  struct nlmsghdr *nlh;
+  struct nlmsghdr* nlh;
 
-  // The buffer size below, (4095) was chosen partly based on testing and
+  // The buffer size below, (8192) was chosen partly based on testing and
   // partly on existing sample source code using this size. It needs to be
   // large enough to hold the netlink messages from the kernel.
-  char buffer[4095];
-  struct rtattr *attr;
+  char buffer[8192];
+  struct rtattr* attr;
   int attr_len;
-  const struct ifaddrmsg *newifam;
+  const struct ifaddrmsg* newifam;
 
   ssize_t rc = EINTR_RETRY(recv(aNetlinkSocket, buffer, sizeof(buffer), 0));
   if (rc < 0) {
@@ -247,14 +247,14 @@ void nsNotifyAddrListener::OnNetlinkMessage(int aNetlinkSocket) {
   }
   size_t netlink_bytes = rc;
 
-  nlh = reinterpret_cast<struct nlmsghdr *>(buffer);
+  nlh = reinterpret_cast<struct nlmsghdr*>(buffer);
 
   bool networkChange = false;
 
   for (; NLMSG_OK(nlh, netlink_bytes); nlh = NLMSG_NEXT(nlh, netlink_bytes)) {
     char prefixaddr[INET6_ADDRSTRLEN];
     char localaddr[INET6_ADDRSTRLEN];
-    char *addr = nullptr;
+    char* addr = nullptr;
     prefixaddr[0] = localaddr[0] = '\0';
 
     if (NLMSG_DONE == nlh->nlmsg_type) {
@@ -262,7 +262,7 @@ void nsNotifyAddrListener::OnNetlinkMessage(int aNetlinkSocket) {
     }
 
     LOG(("nsNotifyAddrListener::OnNetlinkMessage: new/deleted address\n"));
-    newifam = reinterpret_cast<struct ifaddrmsg *>(NLMSG_DATA(nlh));
+    newifam = reinterpret_cast<struct ifaddrmsg*>(NLMSG_DATA(nlh));
 
     if ((newifam->ifa_family != AF_INET) && (newifam->ifa_family != AF_INET6)) {
       continue;
@@ -274,18 +274,18 @@ void nsNotifyAddrListener::OnNetlinkMessage(int aNetlinkSocket) {
          attr = RTA_NEXT(attr, attr_len)) {
       if (attr->rta_type == IFA_ADDRESS) {
         if (newifam->ifa_family == AF_INET) {
-          struct in_addr *in = (struct in_addr *)RTA_DATA(attr);
+          struct in_addr* in = (struct in_addr*)RTA_DATA(attr);
           inet_ntop(AF_INET, in, prefixaddr, INET_ADDRSTRLEN);
         } else {
-          struct in6_addr *in = (struct in6_addr *)RTA_DATA(attr);
+          struct in6_addr* in = (struct in6_addr*)RTA_DATA(attr);
           inet_ntop(AF_INET6, in, prefixaddr, INET6_ADDRSTRLEN);
         }
       } else if (attr->rta_type == IFA_LOCAL) {
         if (newifam->ifa_family == AF_INET) {
-          struct in_addr *in = (struct in_addr *)RTA_DATA(attr);
+          struct in_addr* in = (struct in_addr*)RTA_DATA(attr);
           inet_ntop(AF_INET, in, localaddr, INET_ADDRSTRLEN);
         } else {
-          struct in6_addr *in = (struct in6_addr *)RTA_DATA(attr);
+          struct in6_addr* in = (struct in6_addr*)RTA_DATA(attr);
           inet_ntop(AF_INET6, in, localaddr, INET6_ADDRSTRLEN);
         }
       }
@@ -302,7 +302,7 @@ void nsNotifyAddrListener::OnNetlinkMessage(int aNetlinkSocket) {
           ("nsNotifyAddrListener::OnNetlinkMessage: a new address "
            "- %s.",
            addr));
-      struct ifaddrmsg *ifam;
+      struct ifaddrmsg* ifam;
       nsCString addrStr;
       addrStr.Assign(addr);
       if (auto entry = mAddressInfo.LookupForAdd(addrStr)) {
@@ -319,7 +319,7 @@ void nsNotifyAddrListener::OnNetlinkMessage(int aNetlinkSocket) {
         }
       } else {
         networkChange = true;
-        ifam = (struct ifaddrmsg *)malloc(sizeof(struct ifaddrmsg));
+        ifam = (struct ifaddrmsg*)malloc(sizeof(struct ifaddrmsg));
         memcpy(ifam, newifam, sizeof(struct ifaddrmsg));
         entry.OrInsert([ifam]() { return ifam; });
       }
@@ -357,7 +357,7 @@ nsNotifyAddrListener::Run() {
   addr.nl_family = AF_NETLINK;
   addr.nl_groups = RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR;
 
-  if (bind(netlinkSocket, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+  if (bind(netlinkSocket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
     // failure!
     EINTR_RETRY(close(netlinkSocket));
     return NS_ERROR_FAILURE;
@@ -418,8 +418,8 @@ nsNotifyAddrListener::Run() {
 }
 
 NS_IMETHODIMP
-nsNotifyAddrListener::Observe(nsISupports *subject, const char *topic,
-                              const char16_t *data) {
+nsNotifyAddrListener::Observe(nsISupports* subject, const char* topic,
+                              const char16_t* data) {
   if (!strcmp("xpcom-shutdown-threads", topic)) {
     Shutdown();
   }
@@ -493,7 +493,7 @@ nsresult nsNotifyAddrListener::NetworkChanged() {
 /* Sends the given event.  Assumes aEventID never goes out of scope (static
  * strings are ideal).
  */
-nsresult nsNotifyAddrListener::SendEvent(const char *aEventID) {
+nsresult nsNotifyAddrListener::SendEvent(const char* aEventID) {
   if (!aEventID) return NS_ERROR_NULL_POINTER;
 
   LOG(("SendEvent: %s\n", aEventID));
