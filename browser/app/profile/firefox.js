@@ -1325,9 +1325,9 @@ pref("browser.newtabpage.activity-stream.improvesearch.handoffToAwesomebar", fal
 #endif
 
 #ifdef NIGHTLY_BUILD
-pref("trailhead.firstrun.cohort", 1);
+pref("trailhead.firstrun.branches", "join-privacy");
 #else
-pref("trailhead.firstrun.cohort", 0);
+pref("trailhead.firstrun.branches", "control");
 #endif
 
 // Enable the DOM fullscreen API.
@@ -1634,6 +1634,8 @@ pref("browser.contentblocking.reportBreakage.url", "https://tracking-protection-
 pref("browser.contentblocking.introCount", 0);
 
 pref("browser.contentblocking.maxIntroCount", 5);
+// 1800 = 30 min in seconds
+pref("browser.contentblocking.introDelaySeconds", 1800);
 
 pref("privacy.trackingprotection.introURL", "https://www.mozilla.org/%LOCALE%/firefox/%VERSION%/content-blocking/start/");
 

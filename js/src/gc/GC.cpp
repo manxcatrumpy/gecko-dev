@@ -289,10 +289,11 @@ static const size_t MaxMallocBytes = 128 * 1024 * 1024;
 /*
  * JSGC_MIN_NURSERY_BYTES
  *
- * 192K is conservative, not too low that root marking dominates. The Limit
- * should be a multiple of Nursery::SubChunkStep.
+ * With some testing (Bug 1532838) we increased this to 256K from 192K
+ * which improves performance.  We should try to reduce this for background
+ * tabs.
  */
-static const size_t GCMinNurseryBytes = 192 * 1024;
+static const size_t GCMinNurseryBytes = 256 * 1024;
 
 /* JSGC_ALLOCATION_THRESHOLD_FACTOR */
 static const float AllocThresholdFactor = 0.9f;
@@ -4910,25 +4911,34 @@ static void DropStringWrappers(JSRuntime* rt) {
 
 bool Compartment::findSweepGroupEdges() {
   Zone* source = zone();
-  for (js::WrapperMap::Enum e(crossCompartmentWrappers); !e.empty();
-       e.popFront()) {
+  for (WrapperMap::Enum e(crossCompartmentWrappers); !e.empty(); e.popFront()) {
     CrossCompartmentKey& key = e.front().mutableKey();
     MOZ_ASSERT(!key.is<JSString*>());
 
-    // Add edge to wrapped object zone if wrapped object is not marked black to
-    // ensure that wrapper zone not finish marking after we start sweeping the
-    // wrapped zone.
-
-    if (key.is<JSObject*>() &&
-        key.as<JSObject*>()->asTenured().isMarkedBlack()) {
-      // CCW target is already marked, so we don't need to watch out for
-      // later marking of the CCW.
+    Zone* target = key.zone();
+    if (!target->isGCMarking()) {
       continue;
     }
 
-    Zone* target =
-        key.applyToWrapped([](auto tp) { return (*tp)->asTenured().zone(); });
-    if (!target->isGCMarking()) {
+    // Ensure that debuggers and their debuggees are finalized in the same group
+    // by adding edges in both directions if we find a debugger wrapper.
+    // (Additional edges are added by Debugger::findSweepGroupEdges.)
+    if (key.isDebuggerKey()) {
+      if (!source->addSweepGroupEdgeTo(target) ||
+          !target->addSweepGroupEdgeTo(source)) {
+        return false;
+      }
+      continue;
+    }
+
+    // Otherwise add an edge to the wrapped object's zone to ensure that the
+    // wrapper zone is not still being marked when we start sweeping the wrapped
+    // zone.
+
+    // As an optimization, if the wrapped object is already marked black there
+    // is no danger of later marking and we can skip this.
+    if (key.is<JSObject*>() &&
+        key.as<JSObject*>()->asTenured().isMarkedBlack()) {
       continue;
     }
 
@@ -4953,8 +4963,7 @@ bool Zone::findSweepGroupEdges(Zone* atomsZone) {
     }
   }
 
-  return WeakMapBase::findSweepGroupEdges(this) &&
-         Debugger::findSweepGroupEdges(this);
+  return WeakMapBase::findSweepGroupEdges(this);
 }
 
 bool GCRuntime::findSweepGroupEdges() {
@@ -4963,7 +4972,8 @@ bool GCRuntime::findSweepGroupEdges() {
       return false;
     }
   }
-  return true;
+
+  return Debugger::findSweepGroupEdges(rt);
 }
 
 void GCRuntime::groupZonesForSweeping(JS::GCReason reason) {
