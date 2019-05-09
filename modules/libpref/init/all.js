@@ -1624,6 +1624,7 @@ pref("network.protocol-handler.external.vbscript", false);
 pref("network.protocol-handler.external.javascript", false);
 pref("network.protocol-handler.external.data", false);
 pref("network.protocol-handler.external.ms-help", false);
+pref("network.protocol-handler.external.res", false);
 pref("network.protocol-handler.external.shell", false);
 pref("network.protocol-handler.external.vnd.ms.radio", false);
 #ifdef XP_MACOSX
@@ -1880,6 +1881,7 @@ pref("network.http.tcp_keepalive.long_lived_idle_time", 600);
 
 pref("network.http.enforce-framing.http1", false); // should be named "strict"
 pref("network.http.enforce-framing.soft", true);
+pref("network.http.enforce-framing.strict_chunked_encoding", true);
 
 // Max size, in bytes, for received HTTP response header.
 pref("network.http.max_response_header_size", 393216);
@@ -2659,7 +2661,7 @@ pref("csp.overrule_about_uris_without_csp_whitelist", false);
 pref("csp.skip_about_page_has_csp_assert", false);
 // assertion flag will be set to false after fixing Bug 1473549
 pref("security.allow_eval_with_system_principal", false);
-pref("security.uris_using_eval_with_system_principal", "autocomplete.xml,redux.js,react-redux.js,content-task.js,preferencesbindings.js,lodash.js,jszip.js,sinon-7.2.7.js,ajv-4.1.1.js,setup,jsol.js,simpletest/simpletest.js");
+pref("security.uris_using_eval_with_system_principal", "autocomplete.xml,redux.js,react-redux.js,content-task.js,preferencesbindings.js,lodash.js,jszip.js,sinon-7.2.7.js,ajv-4.1.1.js,jsol.js,simpletest/simpletest.js");
 #endif
 
 #if defined(DEBUG) || defined(FUZZING)
@@ -2729,6 +2731,9 @@ pref("services.settings.security.onecrl.bucket", "security-state");
 pref("services.settings.security.onecrl.collection", "onecrl");
 pref("services.settings.security.onecrl.signer", "onecrl.content-signature.mozilla.org");
 pref("services.settings.security.onecrl.checked", 0);
+
+pref("extensions.abuseReport.enabled", false);
+pref("extensions.abuseReport.url", "https://addons.mozilla.org/api/v4/abuse/report/addon/");
 
 // Blocklist preferences
 pref("extensions.blocklist.enabled", true);
@@ -5148,8 +5153,7 @@ pref("extensions.webextensions.keepUuidOnUninstall", false);
 // Redirect basedomain used by identity api
 pref("extensions.webextensions.identity.redirectDomain", "extensions.allizom.org");
 pref("extensions.webextensions.restrictedDomains", "accounts-static.cdn.mozilla.net,accounts.firefox.com,addons.cdn.mozilla.net,addons.mozilla.org,api.accounts.firefox.com,content.cdn.mozilla.net,discovery.addons.mozilla.org,install.mozilla.org,oauth.accounts.firefox.com,profile.accounts.firefox.com,support.mozilla.org,sync.services.mozilla.com");
-// Whether or not webextension icon theming is supported.
-pref("extensions.webextensions.themes.icons.enabled", false);
+
 pref("extensions.webextensions.remote", false);
 // Whether or not the moz-extension resource loads are remoted. For debugging
 // purposes only. Setting this to false will break moz-extension URI loading
@@ -5178,7 +5182,7 @@ pref("extensions.webextensions.enablePerformanceCounters", true);
 // Maximum age in milliseconds of performance counters in children
 // When reached, the counters are sent to the main process and
 // reset, so we reduce memory footprint.
-pref("extensions.webextensions.performanceCountersMaxAge", 1000);
+pref("extensions.webextensions.performanceCountersMaxAge", 5000);
 
 // The HTML about:addons page.
 pref("extensions.htmlaboutaddons.enabled", false);
@@ -6027,3 +6031,10 @@ pref("dom.sidebar.enabled", true);
 
 // Turn on fission frameloader swapping
 pref("fission.rebuild_frameloaders_on_remoteness_change", true);
+
+// Support for legacy customizations that rely on checking the
+// user profile directory for these stylesheets:
+//  * userContent.css
+//  * userChrome.css
+pref("toolkit.legacyUserProfileCustomizations.stylesheets", false);
+

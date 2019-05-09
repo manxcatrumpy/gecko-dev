@@ -1,10 +1,15 @@
 /* eslint max-len: ["error", 80] */
 
+const {AddonTestUtils} =
+  ChromeUtils.import("resource://testing-common/AddonTestUtils.jsm", {});
+
 const {ExtensionPermissions} =
   ChromeUtils.import("resource://gre/modules/ExtensionPermissions.jsm", {});
 
 let gProvider;
 let promptService;
+
+AddonTestUtils.initMochitest(this);
 
 function getAddonCard(doc, addonId) {
   return doc.querySelector(`addon-card[addon-id="${addonId}"]`);
@@ -77,7 +82,7 @@ add_task(async function enableHtmlViews() {
     fullDescription: "Longer description\nWith brs!",
     type: "extension",
     contributionURL: "http://foo.com",
-    averageRating: 4.3,
+    averageRating: 4.279,
     reviewCount: 5,
     reviewURL: "http://example.com/reviews",
     homepageURL: "http://example.com/addon1",
@@ -205,9 +210,11 @@ add_task(async function testDetailOperations() {
     "The name is updated to the disabled text");
 
   // Enable the add-on.
+  let extensionStarted = AddonTestUtils.promiseWebExtensionStartup(
+    "test@mochi.test");
   disableToggled = BrowserTestUtils.waitForEvent(card, "update");
   disableButton.click();
-  await disableToggled;
+  await Promise.all([disableToggled, extensionStarted]);
 
   // Name is just the add-on name again.
   is(name.textContent, "Test", "The name is reset when enabled");
@@ -218,7 +225,6 @@ add_task(async function testDetailOperations() {
   removeButton.click();
   await cancelled;
 
-
   // Remove the extension.
   let viewChanged = waitForViewLoad(win);
   // Tell the mock prompt service that the prompt was accepted.
@@ -227,11 +233,27 @@ add_task(async function testDetailOperations() {
   await viewChanged;
 
   // We're on the list view now and there's no card for this extension.
-  ok(doc.querySelector("addon-list"), "There's an addon-list now");
+  const addonList = doc.querySelector("addon-list");
+  ok(addonList, "There's an addon-list now");
   ok(!getAddonCard(doc, "test@mochi.test"),
      "The extension no longer has a card");
   let addon = await AddonManager.getAddonByID("test@mochi.test");
-  ok(!addon, "The extension can't be found now");
+  ok(addon && !!(addon.pendingOperations & AddonManager.PENDING_UNINSTALL),
+     "The addon is pending uninstall");
+
+  // Ensure that a pending uninstall bar has been created for the
+  // pending uninstall extension, and pressing the undo button will
+  // refresh the list and render a card to the re-enabled extension.
+  assertHasPendingUninstalls(addonList, 1);
+  assertHasPendingUninstallAddon(addonList, addon);
+
+  extensionStarted = AddonTestUtils.promiseWebExtensionStartup(addon.id);
+  await testUndoPendingUninstall(addonList, addon);
+  info("Wait for the pending uninstall addon complete restart");
+  await extensionStarted;
+
+  card = getAddonCard(doc, addon.id);
+  ok(card, "Addon card rendered after clicking pending uninstall undo button");
 
   await closeView(win);
   await extension.unload();
@@ -317,7 +339,9 @@ add_task(async function testFullDetails() {
   checkLabel(row, "rating");
   let rating = row.lastElementChild;
   ok(rating.classList.contains("addon-detail-rating"), "Found the rating el");
-  let stars = Array.from(rating.querySelectorAll(".addon-detail-rating-star"));
+  let starsElem = rating.querySelector("five-star-rating");
+  is(starsElem.rating, 4.279, "Exact rating used for calculations");
+  let stars = Array.from(starsElem.shadowRoot.querySelectorAll(".rating-star"));
   let fullAttrs = stars.map(star => star.getAttribute("fill")).join(",");
   is(fullAttrs, "full,full,full,full,half", "Four and a half stars are full");
   link = rating.querySelector("a");
@@ -325,6 +349,28 @@ add_task(async function testFullDetails() {
     id: "addon-detail-reviews-link",
     args: {numberOfReviews: 5},
   });
+
+  // While we are here, let's test edge cases of star ratings.
+  async function testRating(rating, ratingRounded, expectation) {
+    starsElem.rating = rating;
+    await starsElem.ownerDocument.l10n.translateElements([starsElem]);
+    is(starsElem.ratingBuckets.join(","), expectation,
+       `Rendering of rating ${rating}`);
+
+    is(starsElem.title, `Rated ${ratingRounded} out of 5`,
+       "Rendered title must contain at most one fractional digit");
+  }
+  await testRating(0.000, "0", "empty,empty,empty,empty,empty");
+  await testRating(0.123, "0.1", "empty,empty,empty,empty,empty");
+  await testRating(0.249, "0.2", "empty,empty,empty,empty,empty");
+  await testRating(0.250, "0.3", "half,empty,empty,empty,empty");
+  await testRating(0.749, "0.7", "half,empty,empty,empty,empty");
+  await testRating(0.750, "0.8", "full,empty,empty,empty,empty");
+  await testRating(1.000, "1", "full,empty,empty,empty,empty");
+  await testRating(4.249, "4.2", "full,full,full,full,empty");
+  await testRating(4.250, "4.3", "full,full,full,full,half");
+  await testRating(4.749, "4.7", "full,full,full,full,half");
+  await testRating(5.000, "5", "full,full,full,full,full");
 
   // That should've been all the rows.
   is(rows.length, 0, "There are no more rows left");
@@ -431,7 +477,7 @@ add_task(async function testStaticTheme() {
   ok(preview, "There is a preview");
   is(preview.src, "http://example.com/preview.png", "The preview URL is set");
   is(preview.width, "664", "The width is set");
-  is(preview.height, "89", "The height is set");
+  is(preview.height, "90", "The height is set");
   is(preview.hidden, false, "The preview is visible");
 
   // Load the detail view.
@@ -446,7 +492,7 @@ add_task(async function testStaticTheme() {
   ok(preview, "There is a preview");
   is(preview.src, "http://example.com/preview.png", "The preview URL is set");
   is(preview.width, "664", "The width is set");
-  is(preview.height, "89", "The height is set");
+  is(preview.height, "90", "The height is set");
   is(preview.hidden, false, "The preview is visible");
 
   let rows = Array.from(card.querySelectorAll(".addon-detail-row"));

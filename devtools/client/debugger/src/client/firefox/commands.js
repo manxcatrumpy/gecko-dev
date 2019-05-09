@@ -77,7 +77,10 @@ async function loadObjectProperties(root: Node) {
     root,
     createObjectClient
   );
-  return utils.node.makeNodesForProperties(properties, root);
+  return utils.node.getChildren({
+    item: root,
+    loadedProperties: new Map([[root.path, properties]])
+  });
 }
 
 function releaseActor(actor: String) {
@@ -261,7 +264,7 @@ type EvaluateParam = { thread: string, frameId: ?FrameId };
 function evaluate(
   script: ?Script,
   { thread, frameId }: EvaluateParam = {}
-): Promise<{ result: ?Object }> {
+): Promise<{ result: Grip | null }> {
   const params = { thread, frameActor: frameId };
   if (!tabTarget || !script) {
     return Promise.resolve({ result: null });

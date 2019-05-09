@@ -2052,6 +2052,17 @@ mozilla::ipc::IPCResult ContentChild::RecvPScriptCacheConstructor(
 
 PNeckoChild* ContentChild::AllocPNeckoChild() { return new NeckoChild(); }
 
+mozilla::ipc::IPCResult ContentChild::RecvNetworkLinkTypeChange(
+    const uint32_t& aType) {
+  mNetworkLinkType = aType;
+  nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
+  if (obs) {
+    obs->NotifyObservers(nullptr, "contentchild:network-link-type-changed",
+                         nullptr);
+  }
+  return IPC_OK();
+}
+
 bool ContentChild::DeallocPNeckoChild(PNeckoChild* necko) {
   delete necko;
   return true;
@@ -2540,17 +2551,6 @@ mozilla::ipc::IPCResult ContentChild::RecvUpdateAppLocales(
 mozilla::ipc::IPCResult ContentChild::RecvUpdateRequestedLocales(
     nsTArray<nsCString>&& aRequestedLocales) {
   LocaleService::GetInstance()->AssignRequestedLocales(aRequestedLocales);
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentChild::RecvClearSiteDataReloadNeeded(
-    const nsString& aOrigin) {
-  // Rebroadcast "clear-site-data-reload-needed".
-  nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
-  if (obs) {
-    obs->NotifyObservers(nullptr, "clear-site-data-reload-needed",
-                         aOrigin.get());
-  }
   return IPC_OK();
 }
 

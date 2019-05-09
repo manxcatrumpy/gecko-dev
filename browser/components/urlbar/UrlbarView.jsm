@@ -93,7 +93,8 @@ class UrlbarView {
       return val;
     }
 
-    let items = this._rows.children;
+    let items = Array.from(this._rows.children)
+                     .filter(r => r.style.display != "none");
     if (val >= items.length) {
       throw new Error(`UrlbarView: Index ${val} is out of bounds.`);
     }
@@ -144,20 +145,26 @@ class UrlbarView {
 
     let row = this._selected;
 
+    // Results over maxResults may be hidden and should not be selectable.
+    let lastElementChild = this._rows.lastElementChild;
+    while (lastElementChild && lastElementChild.style.display == "none") {
+      lastElementChild = lastElementChild.previousElementSibling;
+    }
+
     if (!row) {
-      this._selectItem(reverse ? this._rows.lastElementChild :
+      this._selectItem(reverse ? lastElementChild :
                                  this._rows.firstElementChild);
       return;
     }
 
     let endReached = reverse ?
       (row == this._rows.firstElementChild) :
-      (row == this._rows.lastElementChild);
+      (row == lastElementChild);
     if (endReached) {
       if (this.allowEmptySelection) {
         row = null;
       } else {
-        row = reverse ? this._rows.lastElementChild :
+        row = reverse ? lastElementChild :
                         this._rows.firstElementChild;
       }
       this._selectItem(row);
@@ -168,6 +175,9 @@ class UrlbarView {
       let next = reverse ? row.previousElementSibling : row.nextElementSibling;
       if (!next) {
         break;
+      }
+      if (next.style.display == "none") {
+        continue;
       }
       row = next;
     }
@@ -180,28 +190,29 @@ class UrlbarView {
 
   /**
    * Closes the autocomplete popup, cancelling the query if necessary.
-   *
-   * @param {UrlbarUtils.CANCEL_REASON} [cancelReason]
-   *   Indicates if this close is being triggered as a result of a user action
-   *   which would cancel a query, e.g. on blur.
    */
-  close(cancelReason) {
-    this.controller.cancelQuery(cancelReason);
+  close() {
+    this.controller.cancelQuery();
     this.panel.hidePopup();
   }
 
   // UrlbarController listener methods.
   onQueryStarted(queryContext) {
+    this._queryWasCancelled = false;
     this._startRemoveStaleRowsTimer();
   }
 
   onQueryCancelled(queryContext) {
+    this._queryWasCancelled = true;
     this._cancelRemoveStaleRowsTimer();
   }
 
   onQueryFinished(queryContext) {
     this._cancelRemoveStaleRowsTimer();
-    this._removeStaleRows();
+    // If the query has not been canceled, remove stale rows immediately.
+    if (!this._queryWasCancelled) {
+      this._removeStaleRows();
+    }
   }
 
   onQueryResults(queryContext) {
@@ -386,20 +397,98 @@ class UrlbarView {
     this.panel.openPopup(this.input.textbox, "after_start");
   }
 
-  _updateResults(queryContext) {
-    let results = queryContext.results;
-    let i = 0;
-    for (let row of this._rows.children) {
-      if (i < results.length) {
-        this._updateRow(row, results[i]);
-      } else {
-        row.setAttribute("stale", "true");
-      }
-      i++;
+  /**
+   * Whether a result is a search suggestion.
+   * @param {UrlbarResult} result The result to examine.
+   * @returns {boolean} Whether the result is a search suggestion.
+   */
+  _resultIsSearchSuggestion(result) {
+    return Boolean(result &&
+                   result.type == UrlbarUtils.RESULT_TYPE.SEARCH &&
+                   result.payload.suggestion);
+  }
+
+  /**
+   * Checks whether the given row index can be update to the result we want
+   * to apply. This is used in _updateResults to avoid flickering of results, by
+   * reusing existing rows.
+   * @param {number} rowIndex Index of the row to examine.
+   * @param {UrlbarResult} result The result we'd like to apply.
+   * @param {number} firstSearchSuggestionIndex Index of the first search suggestion.
+   * @param {number} lastSearchSuggestionIndex Index of the last search suggestion.
+   * @returns {boolean} Whether the row can be updated to this result.
+   */
+  _rowCanUpdateToResult(rowIndex, result, firstSearchSuggestionIndex,
+                        lastSearchSuggestionIndex) {
+    // The heuristic result must always be current, thus it's always compatible.
+    if (result.heuristic) {
+      return true;
     }
-    for (; i < results.length; i++) {
+    let row = this._rows.children[rowIndex];
+    let resultIsSearchSuggestion = this._resultIsSearchSuggestion(result);
+    // If the row is same type, just update it.
+    if (resultIsSearchSuggestion == this._resultIsSearchSuggestion(row.result)) {
+      return true;
+    }
+    // If the row has a different type, update it if we are in a compatible
+    // index range.
+    // In practice we don't want to overwrite a search suggestion with a non
+    // search suggestion, but we allow the opposite.
+    return resultIsSearchSuggestion && rowIndex >= firstSearchSuggestionIndex;
+  }
+
+  _updateResults(queryContext) {
+    // TODO: For now this just compares search suggestions to the rest, in the
+    // future we should make it support any type of result. Or, even better,
+    // results should be grouped, thus we can directly update groups.
+
+    // Find where are existing search suggestions.
+    let firstSearchSuggestionIndex = -1;
+    let lastSearchSuggestionIndex = -1;
+    for (let i = 0; i < this._rows.children.length; ++i) {
+      let row = this._rows.children[i];
+      // Mark every row as stale, _updateRow will unmark them later.
+      row.setAttribute("stale", "true");
+      // Skip any row that isn't a search suggestion, or is non-visible because
+      // over maxResults.
+      if (row.result.heuristic ||
+          i >= queryContext.maxResults ||
+          !this._resultIsSearchSuggestion(row.result)) {
+        continue;
+      }
+      if (firstSearchSuggestionIndex == -1) {
+        firstSearchSuggestionIndex = i;
+      }
+      lastSearchSuggestionIndex = i;
+    }
+
+    // Walk rows and find an insertion index for results. To avoid flicker, we
+    // skip rows until we find one compatible with the result we want to apply.
+    // If we couldn't find a compatible range, we'll just update.
+    let results = queryContext.results;
+    let resultIndex = 0;
+    // We can have more rows than the visible ones.
+    for (let rowIndex = 0;
+         rowIndex < this._rows.children.length && resultIndex < results.length;
+         ++rowIndex) {
+      let row = this._rows.children[rowIndex];
+      let result = results[resultIndex];
+      if (this._rowCanUpdateToResult(rowIndex, result,
+                                     firstSearchSuggestionIndex,
+                                     lastSearchSuggestionIndex)) {
+        this._updateRow(row, result);
+        resultIndex++;
+      }
+    }
+    // Add remaining results, if we have fewer rows than results.
+    for (; resultIndex < results.length; ++resultIndex) {
       let row = this._createRow();
-      this._updateRow(row, results[i]);
+      this._updateRow(row, results[resultIndex]);
+      // Due to stale rows, we may have more rows than maxResults, thus we must
+      // hide them, and we'll revert this when stale rows are removed.
+      if (this._rows.children.length >= queryContext.maxResults) {
+        row.style.display = "none";
+      }
       this._rows.appendChild(row);
     }
   }
@@ -479,8 +568,9 @@ class UrlbarView {
       favicon.src = result.payload.icon || UrlbarUtils.ICON.DEFAULT;
     }
 
+    let title = item._elements.get("title");
     this._addTextContentWithHighlights(
-      item._elements.get("title"), result.title, result.titleHighlights);
+      title, result.title, result.titleHighlights);
 
     let tagsContainer = item._elements.get("tagsContainer");
     tagsContainer.textContent = "";
@@ -495,6 +585,7 @@ class UrlbarView {
     }
 
     let action = "";
+    let isVisitAction = false;
     let setURL = false;
     switch (result.type) {
       case UrlbarUtils.RESULT_TYPE.TAB_SWITCH:
@@ -510,21 +601,20 @@ class UrlbarView {
                                              [result.payload.engine], 1);
         break;
       case UrlbarUtils.RESULT_TYPE.KEYWORD:
-        if (result.payload.input.trim() == result.payload.keyword) {
-          action = bundle.GetStringFromName("visit");
-        }
+        isVisitAction = result.payload.input.trim() == result.payload.keyword;
         break;
       case UrlbarUtils.RESULT_TYPE.OMNIBOX:
         action = result.payload.content;
         break;
       default:
         if (result.heuristic) {
-          action = bundle.GetStringFromName("visit");
+          isVisitAction = true;
         } else {
           setURL = true;
         }
         break;
     }
+
     let url = item._elements.get("url");
     if (setURL) {
       this._addTextContentWithHighlights(url, result.payload.displayUrl,
@@ -532,7 +622,15 @@ class UrlbarView {
     } else {
       url.textContent = "";
     }
+
+    if (isVisitAction) {
+      action = bundle.GetStringFromName("visit");
+      title.setAttribute("isurl", "true");
+    } else {
+      title.removeAttribute("isurl");
+    }
     item._elements.get("action").textContent = action;
+
     item._elements.get("titleSeparator").hidden = !action && !setURL;
   }
 
@@ -542,6 +640,8 @@ class UrlbarView {
       let next = row.previousElementSibling;
       if (row.hasAttribute("stale")) {
         row.remove();
+      } else {
+        row.style.display = "";
       }
       row = next;
     }
@@ -716,15 +816,17 @@ class UrlbarView {
   }
 
   _on_overflow(event) {
-    if (event.target.classList.contains("urlbarView-url") ||
-        event.target.classList.contains("urlbarView-title")) {
+    if (event.detail == 1 &&
+        (event.target.classList.contains("urlbarView-url") ||
+         event.target.classList.contains("urlbarView-title"))) {
       event.target.toggleAttribute("overflow", true);
     }
   }
 
   _on_underflow(event) {
-    if (event.target.classList.contains("urlbarView-url") ||
-        event.target.classList.contains("urlbarView-title")) {
+    if (event.detail == 1 &&
+        (event.target.classList.contains("urlbarView-url") ||
+         event.target.classList.contains("urlbarView-title"))) {
       event.target.toggleAttribute("overflow", false);
     }
   }
@@ -742,6 +844,7 @@ class UrlbarView {
     this.window.removeEventListener("resize", this);
     this.removeAccessibleFocus();
     this.input.inputField.setAttribute("aria-expanded", "false");
+    this._rows.textContent = "";
   }
 
   _on_resize() {

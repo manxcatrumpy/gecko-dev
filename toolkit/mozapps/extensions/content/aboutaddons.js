@@ -4,13 +4,17 @@
 /* eslint max-len: ["error", 80] */
 /* exported initialize, hide, show */
 /* import-globals-from aboutaddonsCommon.js */
+/* import-globals-from abuse-reports.js */
 /* global windowRoot */
 
 "use strict";
 
 XPCOMUtils.defineLazyModuleGetters(this, {
   AddonManager: "resource://gre/modules/AddonManager.jsm",
+  AddonRepository: "resource://gre/modules/addons/AddonRepository.jsm",
+  ClientID: "resource://gre/modules/ClientID.jsm",
   ExtensionPermissions: "resource://gre/modules/ExtensionPermissions.jsm",
+  PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
 });
 
 XPCOMUtils.defineLazyPreferenceGetter(
@@ -21,6 +25,9 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "", null, val => Services.urlFormatter.formatURL(val));
 
 const UPDATES_RECENT_TIMESPAN = 2 * 24 * 3600000; // 2 days (in milliseconds)
+
+XPCOMUtils.defineLazyPreferenceGetter(this, "ABUSE_REPORT_ENABLED",
+                                      "extensions.abuseReport.enabled", false);
 
 const PLUGIN_ICON_URL = "chrome://global/skin/plugins/pluginGeneric.svg";
 const PERMISSION_MASKS = {
@@ -33,6 +40,9 @@ const PERMISSION_MASKS = {
   upgrade: AddonManager.PERM_CAN_UPGRADE,
 };
 
+const PREF_DISCOVERY_API_URL = "extensions.getAddons.discovery.api_url";
+const PREF_RECOMMENDATION_ENABLED = "browser.discovery.enabled";
+const PREF_TELEMETRY_ENABLED = "datareporting.healthreport.uploadEnabled";
 const PRIVATE_BROWSING_PERM_NAME = "internal:privateBrowsingAllowed";
 const PRIVATE_BROWSING_PERMS =
   {permissions: [PRIVATE_BROWSING_PERM_NAME], origins: []};
@@ -108,6 +118,11 @@ function hasPermission(addon, permission) {
   return !!(addon.permissions & PERMISSION_MASKS[permission]);
 }
 
+function isPending(addon, action) {
+  const amAction = AddonManager["PENDING_" + action.toUpperCase()];
+  return !!(addon.pendingOperations & amAction);
+}
+
 /**
  * This function is set in initialize() by the parent about:addons window. It
  * is a helper for gViewController.loadView().
@@ -146,6 +161,141 @@ function nl2br(text) {
   }
   return frag;
 }
+
+/**
+ * Select the screeenshot to display above an add-on card.
+ *
+ * @param {AddonWrapper|DiscoAddonWrapper} addon
+ * @returns {string|null}
+ *          The URL of the best fitting screenshot, if any.
+ */
+function getScreenshotUrlForAddon(addon) {
+  let {screenshots} = addon;
+  if (!screenshots || !screenshots.length) {
+    return null;
+  }
+
+  // The image size is defined at .card-heading-image in aboutaddons.css, and
+  // is based on the aspect ratio for a 680x92 image. Use the image if possible,
+  // and otherwise fall back to the first image and hope for the best.
+  let screenshot = screenshots.find(s => s.width === 680 && s.height === 92);
+  if (!screenshot) {
+    console.warn(`Did not find screenshot with desired size for ${addon.id}.`);
+    screenshot = screenshots[0];
+  }
+  return screenshot.url;
+}
+
+/**
+ * Adds UTM parameters to a given URL, if it is an AMO URL.
+ *
+ * @param {string} contentAttribute
+ *        Identifies the part of the UI with which the link is associated.
+ * @param {string} url
+ * @returns {string}
+ *          The url with UTM parameters if it is an AMO URL.
+ *          Otherwise the url in unmodified form.
+ */
+function formatAmoUrl(contentAttribute, url) {
+  let parsedUrl = new URL(url);
+  let domain = `.${parsedUrl.hostname}`;
+  if (!domain.endsWith(".addons.mozilla.org") &&
+      // For testing: addons-dev.allizom.org and addons.allizom.org
+      !domain.endsWith(".allizom.org")) {
+    return url;
+  }
+
+  parsedUrl.searchParams.set("utm_source", "firefox-browser");
+  parsedUrl.searchParams.set("utm_medium", "firefox-browser");
+  parsedUrl.searchParams.set("utm_content", contentAttribute);
+  return parsedUrl.href;
+}
+
+// A wrapper around an item from the "results" array from AMO's discovery API.
+// See https://addons-server.readthedocs.io/en/latest/topics/api/discovery.html
+class DiscoAddonWrapper {
+  /**
+   * @param {object} details
+   *        An item in the "results" array from AMO's discovery API.
+   */
+  constructor(details) {
+    // Reuse AddonRepository._parseAddon to have the AMO response parsing logic
+    // in one place.
+    let repositoryAddon = AddonRepository._parseAddon(details.addon);
+
+    // Note: Any property used by RecommendedAddonCard should appear here.
+    // The property names and values should have the same semantics as
+    // AddonWrapper, to ease the reuse of helper functions in this file.
+    this.id = repositoryAddon.id;
+    this.type = repositoryAddon.type;
+    this.name = repositoryAddon.name;
+    this.screenshots = repositoryAddon.screenshots;
+    this.sourceURI = repositoryAddon.sourceURI;
+    this.creator = repositoryAddon.creator;
+    this.averageRating = repositoryAddon.averageRating;
+
+    this.dailyUsers = details.addon.average_daily_users;
+
+    this.editorialHeading = details.heading_text;
+    this.editorialDescription = details.description_text;
+    this.iconURL = details.addon.icon_url;
+    this.amoListingUrl = details.addon.url;
+  }
+}
+
+/**
+ * A helper to retrieve the list of recommended add-ons via AMO's discovery API.
+ */
+var DiscoveryAPI = {
+  /**
+   * Fetch the list of recommended add-ons. The results are cached.
+   *
+   * Pending requests are coalesced, so there is only one request at any given
+   * time. If a request fails, the pending promises are rejected, but a new
+   * call will result in a new request. A succesful response is cached for the
+   * lifetime of the document.
+   *
+   * @returns {Promise<DiscoAddonWrapper[]>}
+   */
+  async getResults() {
+    if (!this._resultPromise) {
+      this._resultPromise = this._fetchRecommendedAddons()
+        .catch(e => {
+          // Delete the pending promise, so _fetchRecommendedAddons can be
+          // called again at the next property access.
+          delete this._resultPromise;
+          Cu.reportError(e);
+          throw e;
+        });
+    }
+    return this._resultPromise;
+  },
+
+  get clientIdDiscoveryEnabled() {
+    // These prefs match Discovery.jsm for enabling clientId cookies.
+    return Services.prefs.getBoolPref(PREF_RECOMMENDATION_ENABLED, false) &&
+           Services.prefs.getBoolPref(PREF_TELEMETRY_ENABLED, false) &&
+           !PrivateBrowsingUtils.isContentWindowPrivate(window);
+  },
+
+  async _fetchRecommendedAddons() {
+    let discoveryApiUrl =
+      new URL(Services.urlFormatter.formatURLPref(PREF_DISCOVERY_API_URL));
+
+    if (DiscoveryAPI.clientIdDiscoveryEnabled) {
+      let clientId = await ClientID.getClientIdHash();
+      discoveryApiUrl.searchParams.set("telemetry-client-id", clientId);
+    }
+    let res = await fetch(discoveryApiUrl.href, {
+      credentials: "omit",
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch recommended add-ons, ${res.status}`);
+    }
+    let {results} = await res.json();
+    return results.map(details => new DiscoAddonWrapper(details));
+  },
+};
 
 class PanelList extends HTMLElement {
   static get observedAttributes() {
@@ -362,6 +512,34 @@ class AddonOptions extends HTMLElement {
     }
   }
 
+  get panel() {
+    return this.querySelector("panel-list");
+  }
+
+  updateSeparatorsVisibility() {
+    let lastSeparator;
+    let elWasVisible = false;
+
+    // Collect the panel-list children that are not already hidden.
+    const children = Array.from(this.panel.children)
+                          .filter(el => !el.hidden);
+
+    for (let child of children) {
+      if (child.tagName == "PANEL-ITEM-SEPARATOR") {
+        child.hidden = !elWasVisible;
+        if (!child.hidden) {
+          lastSeparator = child;
+        }
+        elWasVisible = false;
+      } else {
+        elWasVisible = true;
+      }
+    }
+    if (!elWasVisible && lastSeparator) {
+      lastSeparator.hidden = true;
+    }
+  }
+
   render() {
     this.appendChild(importTemplate("addon-options"));
   }
@@ -370,6 +548,9 @@ class AddonOptions extends HTMLElement {
     // Hide remove button if not allowed.
     let removeButton = this.querySelector('[action="remove"]');
     removeButton.hidden = !hasPermission(addon, "uninstall");
+
+    // Hide the report button if reporting is preffed off.
+    this.querySelector('[action="report"]').hidden = !ABUSE_REPORT_ENABLED;
 
     // Set disable label and hide if not allowed.
     let toggleDisabledButton = this.querySelector('[action="toggle-disabled"]');
@@ -381,14 +562,12 @@ class AddonOptions extends HTMLElement {
     // Set the update button and badge the menu if there's an update.
     this.querySelector('[action="install-update"]').hidden = !updateInstall;
 
-    // The separator isn't needed when expanded (nothing under it) or when the
-    // remove and disable buttons are hidden (nothing above it).
-    let separator = this.querySelector("panel-item-separator");
-    separator.hidden = card.expanded ||
-      removeButton.hidden && toggleDisabledButton.hidden;
-
     // Hide the expand button if we're expanded.
     this.querySelector('[action="expand"]').hidden = card.expanded;
+
+    // Update the separators visibility based on the updated visibility
+    // of the actions in the panel-list.
+    this.updateSeparatorsVisibility();
   }
 }
 customElements.define("addon-options", AddonOptions);
@@ -423,6 +602,67 @@ class PluginOptions extends HTMLElement {
   }
 }
 customElements.define("plugin-options", PluginOptions);
+
+class FiveStarRating extends HTMLElement {
+  static get observedAttributes() {
+    return ["rating"];
+  }
+
+  constructor() {
+    super();
+    this.attachShadow({mode: "open"});
+    this.shadowRoot.append(importTemplate("five-star-rating"));
+  }
+
+  set rating(v) {
+    this.setAttribute("rating", v);
+  }
+
+  get rating() {
+    let v = parseFloat(this.getAttribute("rating"), 10);
+    if (v >= 0 && v <= 5) {
+      return v;
+    }
+    return 0;
+  }
+
+  get ratingBuckets() {
+    // 0    <= x <  0.25 = empty
+    // 0.25 <= x <  0.75 = half
+    // 0.75 <= x <= 1    = full
+    // ... et cetera, until x <= 5.
+    let {rating} = this;
+    return [0, 1, 2, 3, 4].map(ratingStart => {
+      let distanceToFull = rating - ratingStart;
+      if (distanceToFull < 0.25) {
+        return "empty";
+      }
+      if (distanceToFull < 0.75) {
+        return "half";
+      }
+      return "full";
+    });
+  }
+
+  connectedCallback() {
+    this.renderRating();
+  }
+
+  attributeChangedCallback() {
+    this.renderRating();
+  }
+
+  renderRating() {
+    let starElements = this.shadowRoot.querySelectorAll(".rating-star");
+    for (let [i, part] of this.ratingBuckets.entries()) {
+      starElements[i].setAttribute("fill", part);
+    }
+    document.l10n.setAttributes(this, "five-star-rating", {
+      rating: this.rating,
+    });
+  }
+}
+customElements.define("five-star-rating", FiveStarRating);
 
 class AddonDetails extends HTMLElement {
   connectedCallback() {
@@ -543,14 +783,7 @@ class AddonDetails extends HTMLElement {
     // Rating.
     let ratingRow = this.querySelector(".addon-detail-row-rating");
     if (addon.averageRating) {
-      let stars = ratingRow.querySelectorAll(".addon-detail-rating-star");
-      for (let i = 0; i < stars.length; i++) {
-        let fill = "";
-        if (addon.averageRating > i) {
-          fill = addon.averageRating > i + 0.5 ? "full" : "half";
-        }
-        stars[i].setAttribute("fill", fill);
-      }
+      ratingRow.querySelector("five-star-rating").rating = addon.averageRating;
       let reviews = ratingRow.querySelector("a");
       reviews.href = addon.reviewURL;
       document.l10n.setAttributes(reviews, "addon-detail-reviews-link", {
@@ -640,38 +873,6 @@ class AddonCard extends HTMLElement {
     }
   }
 
-  /**
-   * Determine which screenshot fits best into the given img element. The img
-   * should have a width and height set on it.
-   *
-   * @param {HTMLImageElement} img The <img> the screenshot is being set on.
-   */
-  screenshotForImg(img) {
-    let {addon} = this;
-    if (addon.screenshots && addon.screenshots[0]) {
-      let {width, height} = getComputedStyle(img);
-      let sectionWidth = parseInt(width, 10);
-      let sectionHeight = parseInt(height, 10);
-      let screenshots = addon.screenshots
-        // Only check screenshots with a width and height.
-        .filter(s => s.width && s.height)
-        // Sort the screenshots based how close their dimensions are to the
-        // requested size.
-        .sort((a, b) => {
-          let aCloseness =
-            Math.abs((a.width - sectionWidth) * (a.height - sectionHeight));
-          let bCloseness =
-            Math.abs((b.width - sectionWidth) * (b.height - sectionHeight));
-          if (aCloseness == bCloseness) {
-            return 0;
-          }
-          return aCloseness < bCloseness ? -1 : 1;
-        });
-      return screenshots[0];
-    }
-    return null;
-  }
-
   async handleEvent(e) {
     let {addon} = this;
     let action = e.target.getAttribute("action");
@@ -733,10 +934,17 @@ class AddonCard extends HTMLElement {
         case "remove":
           {
             this.panel.hide();
-            let response = windowRoot.ownerGlobal.promptRemoveExtension(addon);
-            if (response == 0) {
-              await addon.uninstall();
+            let {
+              remove, report,
+            } = windowRoot.ownerGlobal.promptRemoveExtension(addon);
+            if (remove) {
+              await addon.uninstall(true);
               this.sendEvent("remove");
+              if (report) {
+                openAbuseReport({
+                  addonId: addon.id, reportEntryPoint: "uninstall",
+                });
+              }
             } else {
               this.sendEvent("remove-cancelled");
             }
@@ -750,6 +958,10 @@ class AddonCard extends HTMLElement {
           if (e.mozInputSource == MouseEvent.MOZ_SOURCE_KEYBOARD) {
             this.panel.toggle(e);
           }
+          break;
+        case "report":
+          this.panel.hide();
+          openAbuseReport({addonId: addon.id, reportEntryPoint: "menu"});
           break;
       }
     } else if (e.type == "change") {
@@ -861,9 +1073,9 @@ class AddonCard extends HTMLElement {
     let preview = card.querySelector(".card-heading-image");
     preview.hidden = true;
     if (addon.type == "theme") {
-      let screenshot = this.screenshotForImg(preview);
-      if (screenshot) {
-        preview.src = screenshot.url;
+      let screenshotUrl = getScreenshotUrlForAddon(addon);
+      if (screenshotUrl) {
+        preview.src = screenshotUrl;
         preview.hidden = false;
       }
     }
@@ -961,6 +1173,175 @@ class AddonCard extends HTMLElement {
 customElements.define("addon-card", AddonCard);
 
 /**
+ * A child element of `<recommended-addon-list>`. It should be initialized
+ * by calling `setDiscoAddon()` first. Call `setAddon(addon)` if it has been
+ * installed, and call `setAddon(null)` upon uninstall.
+ *
+ *    let discoAddon = new DiscoAddonWrapper({ ... });
+ *    let card = document.createElement("recommended-addon-card");
+ *    card.setDiscoAddon(discoAddon);
+ *    document.body.appendChild(card);
+ *
+ *    AddonManager.getAddonsByID(discoAddon.id)
+ *      .then(addon => card.setAddon(addon));
+ */
+class RecommendedAddonCard extends HTMLElement {
+  /**
+   * @param {DiscoAddonWrapper} addon
+   *        The details of the add-on that should be rendered in the card.
+   */
+  setDiscoAddon(addon) {
+    this.addonId = addon.id;
+
+    // Save the information so we can install.
+    this.discoAddon = addon;
+
+    let card = importTemplate("card").firstElementChild;
+    let heading = card.querySelector(".addon-name-container");
+    heading.textContent = "";
+    heading.append(importTemplate("addon-name-container-in-disco-card"));
+    card.querySelector(".more-options-menu").remove();
+
+    this.setCardContent(card, addon);
+    if (addon.type != "theme") {
+      card.querySelector(".addon-description")
+        .append(importTemplate("addon-description-in-disco-card"));
+      this.setCardDescription(card, addon);
+    }
+    this.registerButtons(card, addon);
+
+    this.textContent = "";
+    this.append(card);
+
+    // We initially assume that the add-on is not installed.
+    this.setAddon(null);
+  }
+
+  /**
+   * Fills in all static parts of the card.
+   *
+   * @param {HTMLElement} card
+   *        The primary content of this card.
+   * @param {DiscoAddonWrapper} addon
+   */
+  setCardContent(card, addon) {
+    // Set the icon.
+    if (addon.type == "theme") {
+      card.querySelector(".addon-icon").hidden = true;
+    } else {
+      card.querySelector(".addon-icon").src =
+        AddonManager.getPreferredIconURL(addon, 32, window);
+    }
+
+    // Set the theme preview.
+    let preview = card.querySelector(".card-heading-image");
+    preview.hidden = true;
+    if (addon.type == "theme") {
+      let screenshotUrl = getScreenshotUrlForAddon(addon);
+      if (screenshotUrl) {
+        preview.src = screenshotUrl;
+        preview.hidden = false;
+      }
+    }
+
+    // Set the name.
+    card.querySelector(".disco-addon-name").textContent = addon.name;
+
+    // Set the author name and link to AMO.
+    if (addon.creator) {
+      let authorInfo = card.querySelector(".disco-addon-author");
+      document.l10n.setAttributes(authorInfo, "created-by-author", {
+        author: addon.creator.name,
+      });
+      // This is intentionally a link to the add-on listing instead of the
+      // author page, because the add-on listing provides more relevant info.
+      authorInfo.querySelector("a").href =
+        formatAmoUrl("discopane-entry-link", addon.amoListingUrl);
+      authorInfo.hidden = false;
+    }
+  }
+
+  setCardDescription(card, addon) {
+    // Set the description. Note that this is the editorial description, not
+    // the add-on's original description that would normally appear on a card.
+    card.querySelector(".disco-description-main")
+      .textContent = addon.editorialDescription;
+    if (addon.editorialHeading) {
+      card.querySelector(".disco-description-intro").textContent =
+        addon.editorialHeading;
+    }
+
+    let hasStats = false;
+    if (addon.averageRating) {
+      hasStats = true;
+      card.querySelector("five-star-rating").rating = addon.averageRating;
+    } else {
+      card.querySelector("five-star-rating").hidden = true;
+    }
+
+    if (addon.dailyUsers) {
+      hasStats = true;
+      let userCountElem = card.querySelector(".disco-user-count");
+      document.l10n.setAttributes(userCountElem, "user-count", {
+        dailyUsers: addon.dailyUsers,
+      });
+    }
+
+    card.querySelector(".disco-description-statistics").hidden = !hasStats;
+  }
+
+  registerButtons(card, addon) {
+    let installButton = card.querySelector("[action='install-addon']");
+    if (addon.type == "theme") {
+      document.l10n.setAttributes(installButton, "install-theme-button");
+    } else {
+      document.l10n.setAttributes(installButton, "install-extension-button");
+    }
+
+    this.addEventListener("click", this);
+  }
+
+  handleEvent(event) {
+    let action = event.target.getAttribute("action");
+    switch (action) {
+      case "install-addon":
+        this.installDiscoAddon();
+        break;
+      case "manage-addon":
+        loadViewFn("detail", this.addonId);
+        break;
+    }
+  }
+
+  async installDiscoAddon() {
+    let addon = this.discoAddon;
+    let url = addon.sourceURI.spec;
+    let install = await AddonManager.getInstallForURL(url, {
+      name: addon.name,
+      telemetryInfo: {source: "disco"},
+    });
+    // We are hosted in a <browser> in about:addons, but we can just use the
+    // main tab's browser since all of it is using the system principal.
+    let browser = window.docShell.chromeEventHandler;
+    AddonManager.installAddonFromWebpage("application/x-xpinstall", browser,
+      Services.scriptSecurityManager.getSystemPrincipal(), install);
+  }
+
+  /**
+   * @param {AddonWrapper|null} addon
+   *        The add-on that has been installed; null if it has been removed.
+   */
+  setAddon(addon) {
+    let card = this.firstElementChild;
+    card.querySelector("[action='install-addon']").hidden = !!addon;
+    card.querySelector("[action='manage-addon']").hidden = !addon;
+
+    this.dispatchEvent(new CustomEvent("disco-card-updated")); // For testing.
+  }
+}
+customElements.define("recommended-addon-card", RecommendedAddonCard);
+
+/**
  * A list view for add-ons of a certain type. It should be initialized with the
  * type of add-on to render and have section data set before being connected to
  * the document.
@@ -977,6 +1358,7 @@ class AddonList extends HTMLElement {
   constructor() {
     super();
     this.sections = [];
+    this.pendingUninstallAddons = new Set();
   }
 
   async connectedCallback() {
@@ -994,6 +1376,11 @@ class AddonList extends HTMLElement {
     // Remove content and stop listening until this is connected again.
     this.textContent = "";
     this.removeListener();
+
+    // Process any pending uninstall related to this list.
+    for (const addon of this.pendingUninstallAddons) {
+      addon.uninstall();
+    }
   }
 
   /**
@@ -1035,6 +1422,10 @@ class AddonList extends HTMLElement {
     return this.querySelector(`addon-card[addon-id="${addon.id}"]`);
   }
 
+  getPendingUninstallBar(addon) {
+    return this.querySelector(`message-bar[addon-id="${addon.id}"]`);
+  }
+
   sortByFn(aAddon, bAddon) {
     return aAddon.name.localeCompare(bAddon.name);
   }
@@ -1055,6 +1446,12 @@ class AddonList extends HTMLElement {
       let index = this.sections.findIndex(({filterFn}) => filterFn(addon));
       if (index != -1) {
         sectionedAddons[index].push(addon);
+      } else if (isPending(addon, "uninstall")) {
+        // A second tab may be opened on "about:addons" (or Firefox may
+        // have crashed) while there are still "pending uninstall" add-ons.
+        // Ensure to list them in the pendingUninstall message-bar-stack
+        // when the AddonList is initially rendered.
+        this.pendingUninstallAddons.add(addon);
       }
     }
 
@@ -1064,6 +1461,45 @@ class AddonList extends HTMLElement {
     }
 
     return sectionedAddons;
+  }
+
+  createPendingUninstallStack() {
+    const stack = document.createElement("message-bar-stack");
+    stack.setAttribute("class", "pending-uninstall");
+    stack.setAttribute("reverse", "");
+    return stack;
+ }
+
+  addPendingUninstallBar(addon) {
+    const stack = this.pendingUninstallStack;
+    const mb = document.createElement("message-bar");
+    mb.setAttribute("addon-id", addon.id);
+    mb.setAttribute("type", "generic");
+
+    const addonName = document.createElement("span");
+    addonName.setAttribute("data-l10n-name", "addon-name");
+    const message = document.createElement("span");
+    message.append(addonName);
+    const undo = document.createElement("button");
+    undo.setAttribute("action", "undo");
+    undo.addEventListener("click", () => {
+      addon.cancelUninstall();
+    });
+
+    document.l10n.setAttributes(message, "pending-uninstall-description", {
+      "addon": addon.name,
+    });
+    document.l10n.setAttributes(undo, "pending-uninstall-undo-button");
+
+    mb.append(message, undo);
+    stack.append(mb);
+  }
+
+  removePendingUninstallBar(addon) {
+    const messagebar = this.getPendingUninstallBar(addon);
+    if (messagebar) {
+      messagebar.remove();
+    }
   }
 
   createSectionHeading(headingIndex) {
@@ -1180,9 +1616,16 @@ class AddonList extends HTMLElement {
 
     let sectionedAddons = await this.getAddons();
 
-    // Render the sections.
     let frag = document.createDocumentFragment();
 
+    // Render the pending uninstall message-bar-stack.
+    this.pendingUninstallStack = this.createPendingUninstallStack();
+    for (let addon of this.pendingUninstallAddons) {
+      this.addPendingUninstallBar(addon);
+    }
+    frag.appendChild(this.pendingUninstallStack);
+
+    // Render the sections.
     for (let i = 0; i < sectionedAddons.length; i++) {
       this.sections[i].node = this.renderSection(sectionedAddons[i], i);
       frag.appendChild(this.sections[i].node);
@@ -1202,11 +1645,26 @@ class AddonList extends HTMLElement {
     AddonManager.removeAddonListener(this);
   }
 
+  onOperationCancelled(addon) {
+    if (this.pendingUninstallAddons.has(addon) &&
+        !isPending(addon, "uninstall")) {
+      this.pendingUninstallAddons.delete(addon);
+      this.removePendingUninstallBar(addon);
+    }
+    this.updateAddon(addon);
+  }
+
   onEnabled(addon) {
     this.updateAddon(addon);
   }
 
   onDisabled(addon) {
+    this.updateAddon(addon);
+  }
+
+  onUninstalling(addon) {
+    this.pendingUninstallAddons.add(addon);
+    this.addPendingUninstallBar(addon);
     this.updateAddon(addon);
   }
 
@@ -1218,10 +1676,128 @@ class AddonList extends HTMLElement {
   }
 
   onUninstalled(addon) {
+    this.removePendingUninstallBar(addon);
     this.removeAddon(addon);
   }
 }
 customElements.define("addon-list", AddonList);
+
+class RecommendedAddonList extends HTMLElement {
+  connectedCallback() {
+    if (this.isConnected) {
+      this.loadCardsIfNeeded();
+      this.updateCardsWithAddonManager();
+    }
+    AddonManager.addAddonListener(this);
+  }
+
+  disconnectedCallback() {
+    AddonManager.removeAddonListener(this);
+  }
+
+  onInstalled(addon) {
+    let card = this.getCardById(addon.id);
+    if (card) {
+      card.setAddon(addon);
+    }
+  }
+
+  onUninstalled(addon) {
+    let card = this.getCardById(addon.id);
+    if (card) {
+      card.setAddon(null);
+    }
+  }
+
+  getCardById(addonId) {
+    for (let card of this.children) {
+      if (card.addonId === addonId) {
+        return card;
+      }
+    }
+    return null;
+  }
+
+  async updateCardsWithAddonManager() {
+    let cards = Array.from(this.children);
+    let addonIds = cards.map(card => card.addonId);
+    let addons = await AddonManager.getAddonsByIDs(addonIds);
+    for (let [i, card] of cards.entries()) {
+      let addon = addons[i];
+      card.setAddon(addon);
+      if (addon) {
+        // Already installed, move card to end.
+        this.append(card);
+      }
+    }
+  }
+
+  async loadCardsIfNeeded() {
+    // Use promise as guard. Also used by tests to detect when load completes.
+    if (!this.cardsReady) {
+      this.cardsReady = this._loadCards();
+    }
+    return this.cardsReady;
+  }
+
+  async _loadCards() {
+    let recommendedAddons;
+    try {
+      recommendedAddons = await DiscoveryAPI.getResults();
+    } catch (e) {
+      return;
+    }
+
+    let frag = document.createDocumentFragment();
+    for (let addon of recommendedAddons) {
+      let card = document.createElement("recommended-addon-card");
+      card.setDiscoAddon(addon);
+      frag.append(card);
+    }
+    this.append(frag);
+    await this.updateCardsWithAddonManager();
+  }
+}
+customElements.define("recommended-addon-list", RecommendedAddonList);
+
+class DiscoveryPane extends HTMLElement {
+  render() {
+    this.append(importTemplate("discopane"));
+    this.querySelector(".discopane-intro-learn-more-link").href =
+      Services.urlFormatter.formatURLPref("app.support.baseURL") +
+      "recommended-extensions-program";
+
+    this.querySelector(".discopane-notice").hidden =
+      !DiscoveryAPI.clientIdDiscoveryEnabled;
+    this.addEventListener("click", this);
+
+    // Hide footer until the cards is loaded, to prevent the content from
+    // suddenly shifting when the user attempts to interact with it.
+    let footer = this.querySelector("footer");
+    footer.hidden = true;
+    this.querySelector("recommended-addon-list").loadCardsIfNeeded()
+      .finally(() => { footer.hidden = false; });
+  }
+
+  handleEvent(event) {
+    let action = event.target.getAttribute("action");
+    switch (action) {
+      case "notice-learn-more":
+        windowRoot.ownerGlobal.openTrustedLinkIn(
+          Services.urlFormatter.formatURLPref("app.support.baseURL") +
+          "personalized-extension-recommendations", "tab");
+        break;
+      case "open-amo":
+        let amoUrl =
+          Services.urlFormatter.formatURLPref("extensions.getAddons.link.url");
+        amoUrl = formatAmoUrl("find-more-link-bottom", amoUrl);
+        windowRoot.ownerGlobal.openTrustedLinkIn(amoUrl, "tab");
+        break;
+    }
+  }
+}
+
+customElements.define("discovery-pane", DiscoveryPane);
 
 class ListView {
   constructor({param, root}) {
@@ -1234,10 +1810,12 @@ class ListView {
     list.type = this.type;
     list.setSections([{
       headingId: "addons-enabled-heading",
-      filterFn: addon => !addon.hidden && addon.isActive,
+      filterFn: addon => !addon.hidden && addon.isActive &&
+                         !isPending(addon, "uninstall"),
     }, {
       headingId: "addons-disabled-heading",
-      filterFn: addon => !addon.hidden && !addon.isActive,
+      filterFn: addon => !addon.hidden && !addon.isActive &&
+                         !isPending(addon, "uninstall"),
     }]);
 
     await list.render();
@@ -1311,6 +1889,14 @@ class UpdatesView {
   }
 }
 
+class DiscoveryView {
+  render() {
+    let discopane = document.createElement("discovery-pane");
+    discopane.render();
+    return discopane;
+  }
+}
+
 // Generic view management.
 let root = null;
 
@@ -1340,8 +1926,16 @@ async function show(type, param) {
     await new ListView({param, root}).render();
   } else if (type == "detail") {
     await new DetailView({param, root}).render();
+  } else if (type == "discover") {
+    let discoverView = new DiscoveryView();
+    let elem = discoverView.render();
+    await document.l10n.translateFragment(elem);
+    root.textContent = "";
+    root.append(elem);
   } else if (type == "updates") {
     await new UpdatesView({param, root}).render();
+  } else {
+    throw new Error(`Unknown view type: ${type}`);
   }
 }
 

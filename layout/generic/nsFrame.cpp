@@ -2168,11 +2168,12 @@ int16_t nsFrame::DisplaySelection(nsPresContext* aPresContext,
   return selType;
 }
 
-class nsDisplaySelectionOverlay : public nsDisplayItem {
+class nsDisplaySelectionOverlay : public nsPaintedDisplayItem {
  public:
   nsDisplaySelectionOverlay(nsDisplayListBuilder* aBuilder, nsFrame* aFrame,
                             int16_t aSelectionValue)
-      : nsDisplayItem(aBuilder, aFrame), mSelectionValue(aSelectionValue) {
+      : nsPaintedDisplayItem(aBuilder, aFrame),
+        mSelectionValue(aSelectionValue) {
     MOZ_COUNT_CTOR(nsDisplaySelectionOverlay);
   }
 #ifdef NS_BUILD_REFCNT_LOGGING
@@ -4248,7 +4249,7 @@ nsFrame::HandlePress(nsPresContext* aPresContext, WidgetGUIEvent* aEvent,
 
   if (!mouseEvent->IsAlt()) {
     for (nsIContent* content = mContent; content;
-         content = content->GetParent()) {
+         content = content->GetFlattenedTreeParent()) {
       if (nsContentUtils::ContentIsDraggable(content) &&
           !content->IsEditable()) {
         // coordinate stuff is the fix for bug #55921

@@ -175,6 +175,7 @@ function Toolbox(target, selectedTool, hostType, contentWindow, frameId,
   this._onNewSelectedNodeFront = this._onNewSelectedNodeFront.bind(this);
   this._onToolSelected = this._onToolSelected.bind(this);
   this._onTargetClosed = this._onTargetClosed.bind(this);
+  this._onContextMenu = this._onContextMenu.bind(this);
   this.updateToolboxButtonsVisibility = this.updateToolboxButtonsVisibility.bind(this);
   this.updateToolboxButtons = this.updateToolboxButtons.bind(this);
   this.selectTool = this.selectTool.bind(this);
@@ -390,6 +391,10 @@ Toolbox.prototype = {
     return DevToolsUtils.getTopWindow(this.win);
   },
 
+  get topDoc() {
+    return this.topWindow.document;
+  },
+
   /**
    * Shortcut to the document containing the toolbox UI
    */
@@ -463,7 +468,7 @@ Toolbox.prototype = {
         // Displays DebugTargetInfo which shows the basic information of debug target,
         // if `about:devtools-toolbox` URL opens directly.
         // DebugTargetInfo requires this._debugTargetData to be populated
-        this._debugTargetData = await this._getDebugTargetData();
+        this._debugTargetData = this._getDebugTargetData();
       }
 
       const domHelper = new DOMHelpers(this.win);
@@ -510,21 +515,6 @@ Toolbox.prototype = {
       Services.prefs.addObserver("devtools.serviceWorkers.testing.enabled",
                                  this._applyServiceWorkersTestingSettings);
 
-      // Register listener for handling context menus in standard
-      // input elements: <input> and <textarea>.
-      // There is also support for custom input elements using
-      // .devtools-input class (e.g. CodeMirror instances).
-      this.doc.addEventListener("contextmenu", (e) => {
-        if (e.originalTarget.closest("input[type=text]") ||
-            e.originalTarget.closest("input[type=search]") ||
-            e.originalTarget.closest("input:not([type])") ||
-            e.originalTarget.closest(".devtools-input") ||
-            e.originalTarget.closest("textarea")) {
-          e.stopPropagation();
-          e.preventDefault();
-          this.openTextBoxContextMenu(e.screenX, e.screenY);
-        }
-      });
       // Get the DOM element to mount the ToolboxController to.
       this._componentMount = this.doc.getElementById("toolbox-toolbar-mount");
 
@@ -648,6 +638,7 @@ Toolbox.prototype = {
 
     this._chromeEventHandler.addEventListener("keypress", this._splitConsoleOnKeypress);
     this._chromeEventHandler.addEventListener("focus", this._onFocus, true);
+    this._chromeEventHandler.addEventListener("contextmenu", this._onContextMenu);
   },
 
   _removeChromeEventHandlerEvents: function() {
@@ -663,6 +654,7 @@ Toolbox.prototype = {
     this._chromeEventHandler.removeEventListener("keypress",
       this._splitConsoleOnKeypress);
     this._chromeEventHandler.removeEventListener("focus", this._onFocus, true);
+    this._chromeEventHandler.removeEventListener("contextmenu", this._onContextMenu);
 
     this._chromeEventHandler = null;
   },
@@ -794,20 +786,34 @@ Toolbox.prototype = {
     }
   },
 
-  _getDebugTargetData: async function() {
+  _onContextMenu: function(e) {
+    // Handle context menu events in standard input elements: <input> and <textarea>.
+    // Also support for custom input elements using .devtools-input class
+    // (e.g. CodeMirror instances).
+    if (e.originalTarget.closest("input[type=text]") ||
+        e.originalTarget.closest("input[type=search]") ||
+        e.originalTarget.closest("input:not([type])") ||
+        e.originalTarget.closest(".devtools-input") ||
+        e.originalTarget.closest("textarea")) {
+      e.stopPropagation();
+      e.preventDefault();
+      this.openTextBoxContextMenu(e.screenX, e.screenY);
+    }
+  },
+
+  _getDebugTargetData: function() {
     const url = new URL(this.win.location);
     const searchParams = new this.win.URLSearchParams(url.search);
 
     const targetType = searchParams.get("type") || DEBUG_TARGET_TYPES.TAB;
 
-    const deviceFront = await this.target.client.mainRoot.getFront("device");
-    const deviceDescription = await deviceFront.getDescription();
     const remoteId = searchParams.get("remoteId");
+    const runtimeInfo = remoteClientManager.getRuntimeInfoByRemoteId(remoteId);
     const connectionType = remoteClientManager.getConnectionTypeByRemoteId(remoteId);
 
     return {
       connectionType,
-      deviceDescription,
+      runtimeInfo,
       targetType,
     };
   },
@@ -3245,13 +3251,20 @@ Toolbox.prototype = {
    * @param {Number} y
    */
   openTextBoxContextMenu: function(x, y) {
-    const menu = createEditContextMenu(this.win, "toolbox-menu");
+    const menu = createEditContextMenu(this.topWindow, "toolbox-menu");
 
     // Fire event for tests
     menu.once("open", () => this.emit("menu-open"));
     menu.once("close", () => this.emit("menu-close"));
 
-    menu.popup(x, y, { doc: this.doc });
+    menu.popup(x, y, this.doc);
+  },
+
+  /**
+   *  Retrieve the current textbox context menu, if available.
+   */
+  getTextBoxContextMenu: function() {
+    return this.topDoc.getElementById("toolbox-menu");
   },
 
   /**

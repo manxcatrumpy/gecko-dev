@@ -1559,6 +1559,25 @@ bool CallNativeGetter(JSContext* cx, HandleFunction callee, HandleObject obj,
   return true;
 }
 
+bool CallNativeGetterByValue(JSContext* cx, HandleFunction callee,
+                             HandleValue receiver, MutableHandleValue result) {
+  AutoRealm ar(cx, callee);
+
+  MOZ_ASSERT(callee->isNative());
+  JSNative natfun = callee->native();
+
+  JS::AutoValueArray<2> vp(cx);
+  vp[0].setObject(*callee.get());
+  vp[1].set(receiver);
+
+  if (!natfun(cx, 0, vp.begin())) {
+    return false;
+  }
+
+  result.set(vp[0]);
+  return true;
+}
+
 bool CallNativeSetter(JSContext* cx, HandleFunction callee, HandleObject obj,
                       HandleValue rhs) {
   AutoRealm ar(cx, callee);
@@ -1990,25 +2009,6 @@ bool DoToNumber(JSContext* cx, HandleValue arg, MutableHandleValue ret) {
 bool DoToNumeric(JSContext* cx, HandleValue arg, MutableHandleValue ret) {
   ret.set(arg);
   return ToNumeric(cx, ret);
-}
-
-bool CopyStringSplitArray(JSContext* cx, HandleArrayObject arr,
-                          MutableHandleValue result) {
-  MOZ_ASSERT(arr->isTenured(),
-             "ConstStringSplit needs a tenured template object");
-
-  uint32_t length = arr->getDenseInitializedLength();
-  MOZ_ASSERT(length == arr->length(),
-             "template object is a fully initialized array");
-
-  ArrayObject* nobj = NewFullyAllocatedArrayTryReuseGroup(cx, arr, length);
-  if (!nobj) {
-    return false;
-  }
-  nobj->initDenseElements(arr, 0, length);
-
-  result.setObject(*nobj);
-  return true;
 }
 
 }  // namespace jit

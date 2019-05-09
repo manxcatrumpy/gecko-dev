@@ -7,7 +7,10 @@ header = """/* This Source Code Form is subject to the terms of the Mozilla Publ
 #ifdef __clang__
 #  pragma GCC diagnostic ignored "-Wreturn-type-c-linkage"
 #endif"""
-trailer = "#pragma GCC diagnostic pop"
+trailer = """
+#pragma GCC diagnostic pop
+#include "mozilla/ServoStyleConstsInlines.h"
+"""
 autogen_warning = """/* DO NOT MODIFY THIS MANUALLY! This file was generated using cbindgen.
  * To generate this file:
  *   1. Get the latest cbindgen using `cargo install --force cbindgen`
@@ -26,7 +29,7 @@ includes = ["mozilla/ServoStyleConstsForwards.h"]
 
 [parse]
 parse_deps = true
-include = ["style", "cssparser", "style_traits"]
+include = ["style", "cssparser", "style_traits", "servo_arc"]
 
 [struct]
 derive_eq = true
@@ -38,6 +41,7 @@ bitflags = true
 [enum]
 derive_helper_methods = true
 derive_const_casts = true
+derive_tagged_enum_destructor = true
 cast_assert_name = "MOZ_ASSERT"
 
 [export]
@@ -118,6 +122,11 @@ include = [
   "ColorOrAuto",
   "GradientItem",
   "VerticalAlign",
+  "BasicShape",
+  "ShapeRadius",
+  "ArcSlice",
+  "ForgottenArcSlicePtr",
+  "HeaderWithLength",
 ]
 item_types = ["enums", "structs", "typedefs", "functions"]
 renaming_overrides_prefixing = true
@@ -330,4 +339,52 @@ renaming_overrides_prefixing = true
   static inline StyleRGBA FromColor(nscolor);
 
   inline nscolor ToColor() const;
+"""
+
+"OwnedSlice" = """
+  StyleOwnedSlice() :
+    ptr((T*)alignof(T)),
+    len(0) {}
+
+  // NOTE(emilio): Could be implemented with some effort, but for now no copy.
+  StyleOwnedSlice(const StyleOwnedSlice& aOther) = delete;
+
+  ~StyleOwnedSlice() {
+    if (!len) {
+      return;
+    }
+    for (size_t i : IntegerRange(len)) {
+      ptr[i].~T();
+    }
+    free(ptr);
+    ptr = (T*)alignof(T);
+    len = 0;
+  }
+
+  Span<const T> AsSpan() const {
+    return MakeSpan(ptr, len);
+  }
+
+  size_t Length() const {
+    return AsSpan().Length();
+  }
+
+  bool operator==(const StyleOwnedSlice& other) const {
+    return AsSpan() == other.AsSpan();
+  }
+
+  bool operator!=(const StyleOwnedSlice& other) const {
+    return !(*this == other);
+  }
+"""
+
+"ArcSlice" = """
+  StyleArcSlice() = delete;
+  inline StyleArcSlice(const StyleArcSlice& aOther);
+  inline explicit StyleArcSlice(const StyleForgottenArcSlicePtr<T>& aPtr);
+  inline ~StyleArcSlice();
+  inline Span<const T> AsSpan() const;
+  inline size_t Length() const;
+  inline bool operator==(const StyleArcSlice& other) const;
+  inline bool operator!=(const StyleArcSlice& other) const;
 """

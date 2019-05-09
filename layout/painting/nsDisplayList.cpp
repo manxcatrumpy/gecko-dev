@@ -952,14 +952,14 @@ void nsDisplayListBuilder::AddAnimationsAndTransitionsToLayer(
   animationInfo.TransferMutatedFlagToLayer(aLayer);
 }
 
-nsDisplayItem* nsDisplayListBuilder::MergeItems(
-    nsTArray<nsDisplayItem*>& aMergedItems) {
+nsDisplayWrapList* nsDisplayListBuilder::MergeItems(
+    nsTArray<nsDisplayWrapList*>& aItems) {
   // For merging, we create a temporary item by cloning the last item of the
   // mergeable items list. This ensures that the temporary item will have the
   // correct frame and bounds.
-  nsDisplayItem* merged = nullptr;
+  nsDisplayWrapList* merged = nullptr;
 
-  for (nsDisplayItem* item : Reversed(aMergedItems)) {
+  for (nsDisplayWrapList* item : Reversed(aItems)) {
     MOZ_ASSERT(item);
 
     if (!merged) {
@@ -1538,7 +1538,7 @@ void nsDisplayListBuilder::EnterPresShell(nsIFrame* aReferenceFrame,
 // A non-blank paint is a paint that does not just contain the canvas
 // background.
 static bool DisplayListIsNonBlank(nsDisplayList* aList) {
-  for (nsDisplayItem* i = aList->GetBottom(); i != nullptr; i = i->GetAbove()) {
+  for (nsDisplayItem* i : *aList) {
     switch (i->GetType()) {
       case DisplayItemType::TYPE_COMPOSITOR_HITTEST_INFO:
       case DisplayItemType::TYPE_CANVAS_BACKGROUND_COLOR:
@@ -1566,7 +1566,7 @@ static bool DisplayListIsNonBlank(nsDisplayList* aList) {
 // includes text with pending webfonts. This is the first time users
 // could start consuming page content."
 static bool DisplayListIsContentful(nsDisplayList* aList) {
-  for (nsDisplayItem* i = aList->GetBottom(); i != nullptr; i = i->GetAbove()) {
+  for (nsDisplayItem* i : *aList) {
     DisplayItemType type = i->GetType();
     nsDisplayList* children = i->GetChildren();
 
@@ -2426,7 +2426,7 @@ static void MoveListTo(nsDisplayList* aList,
 
 nsRect nsDisplayList::GetBounds(nsDisplayListBuilder* aBuilder) const {
   nsRect bounds;
-  for (nsDisplayItem* i = GetBottom(); i != nullptr; i = i->GetAbove()) {
+  for (nsDisplayItem* i : *this) {
     bounds.UnionRect(bounds, i->GetClippedBounds(aBuilder));
   }
   return bounds;
@@ -2436,7 +2436,7 @@ nsRect nsDisplayList::GetClippedBoundsWithRespectToASR(
     nsDisplayListBuilder* aBuilder, const ActiveScrolledRoot* aASR,
     nsRect* aBuildingRect) const {
   nsRect bounds;
-  for (nsDisplayItem* i = GetBottom(); i != nullptr; i = i->GetAbove()) {
+  for (nsDisplayItem* i : *this) {
     nsRect r = i->GetClippedBounds(aBuilder);
     if (aASR != i->GetActiveScrolledRoot() && !r.IsEmpty()) {
       if (Maybe<nsRect> clip = i->GetClipWithRespectToASR(aBuilder, aASR)) {
@@ -2453,7 +2453,7 @@ nsRect nsDisplayList::GetClippedBoundsWithRespectToASR(
 
 nsRect nsDisplayList::GetBuildingRect() const {
   nsRect result;
-  for (nsDisplayItem* i = GetBottom(); i != nullptr; i = i->GetAbove()) {
+  for (nsDisplayItem* i : *this) {
     result.UnionRect(result, i->GetBuildingRect());
   }
   return result;
@@ -3013,7 +3013,7 @@ void nsDisplayList::HitTest(nsDisplayListBuilder* aBuilder, const nsRect& aRect,
 
   if (aState->mInPreserves3D) {
     // Collect leaves of the current 3D rendering context.
-    for (item = GetBottom(); item; item = item->GetAbove()) {
+    for (nsDisplayItem* item : *this) {
       auto itemType = item->GetType();
       if (itemType != DisplayItemType::TYPE_TRANSFORM ||
           !static_cast<nsDisplayTransform*>(item)->IsLeafOf3DContext()) {
@@ -3027,7 +3027,7 @@ void nsDisplayList::HitTest(nsDisplayListBuilder* aBuilder, const nsRect& aRect,
   }
 
   int32_t itemBufferStart = aState->mItemBuffer.Length();
-  for (item = GetBottom(); item; item = item->GetAbove()) {
+  for (nsDisplayItem* item : *this) {
     aState->mItemBuffer.AppendElement(item);
   }
 
@@ -4192,7 +4192,7 @@ void nsDisplayBackgroundImage::HitTest(nsDisplayListBuilder* aBuilder,
 
 bool nsDisplayBackgroundImage::ComputeVisibility(nsDisplayListBuilder* aBuilder,
                                                  nsRegion* aVisibleRegion) {
-  if (!nsDisplayItem::ComputeVisibility(aBuilder, aVisibleRegion)) {
+  if (!nsDisplayImageContainer::ComputeVisibility(aBuilder, aVisibleRegion)) {
     return false;
   }
 
@@ -4429,7 +4429,7 @@ bool nsDisplayTableBackgroundImage::IsInvalid(nsRect& aRect) const {
 nsDisplayThemedBackground::nsDisplayThemedBackground(
     nsDisplayListBuilder* aBuilder, nsIFrame* aFrame,
     const nsRect& aBackgroundRect)
-    : nsDisplayItem(aBuilder, aFrame), mBackgroundRect(aBackgroundRect) {
+    : nsPaintedDisplayItem(aBuilder, aFrame), mBackgroundRect(aBackgroundRect) {
   MOZ_COUNT_CTOR(nsDisplayThemedBackground);
 }
 
@@ -5129,7 +5129,8 @@ uint16_t nsDisplayCompositorHitTestInfo::CalculatePerFrameKey() const {
 }
 
 int32_t nsDisplayCompositorHitTestInfo::ZIndex() const {
-  return mOverrideZIndex ? *mOverrideZIndex : nsDisplayItem::ZIndex();
+  return mOverrideZIndex ? *mOverrideZIndex
+                         : nsDisplayHitTestInfoItem::ZIndex();
 }
 
 void nsDisplayCompositorHitTestInfo::SetOverrideZIndex(int32_t aZIndex) {
@@ -5138,7 +5139,7 @@ void nsDisplayCompositorHitTestInfo::SetOverrideZIndex(int32_t aZIndex) {
 
 nsDisplayCaret::nsDisplayCaret(nsDisplayListBuilder* aBuilder,
                                nsIFrame* aCaretFrame)
-    : nsDisplayItem(aBuilder, aCaretFrame),
+    : nsPaintedDisplayItem(aBuilder, aCaretFrame),
       mCaret(aBuilder->GetCaret()),
       mBounds(aBuilder->GetCaretRect() + ToReferenceFrame()) {
   MOZ_COUNT_CTOR(nsDisplayCaret);
@@ -5201,7 +5202,7 @@ bool nsDisplayCaret::CreateWebRenderCommands(
 
 nsDisplayBorder::nsDisplayBorder(nsDisplayListBuilder* aBuilder,
                                  nsIFrame* aFrame)
-    : nsDisplayItem(aBuilder, aFrame) {
+    : nsPaintedDisplayItem(aBuilder, aFrame) {
   MOZ_COUNT_CTOR(nsDisplayBorder);
 
   mBounds = CalculateBounds<nsRect>(*mFrame->StyleBorder());
@@ -5370,7 +5371,7 @@ bool nsDisplayBoxShadowOuter::IsInvisibleInRect(const nsRect& aRect) const {
 
 bool nsDisplayBoxShadowOuter::ComputeVisibility(nsDisplayListBuilder* aBuilder,
                                                 nsRegion* aVisibleRegion) {
-  if (!nsDisplayItem::ComputeVisibility(aBuilder, aVisibleRegion)) {
+  if (!nsPaintedDisplayItem::ComputeVisibility(aBuilder, aVisibleRegion)) {
     return false;
   }
 
@@ -5637,7 +5638,7 @@ bool nsDisplayBoxShadowInner::CreateWebRenderCommands(
 
 bool nsDisplayBoxShadowInner::ComputeVisibility(nsDisplayListBuilder* aBuilder,
                                                 nsRegion* aVisibleRegion) {
-  if (!nsDisplayItem::ComputeVisibility(aBuilder, aVisibleRegion)) {
+  if (!nsPaintedDisplayItem::ComputeVisibility(aBuilder, aVisibleRegion)) {
     return false;
   }
 
@@ -5729,8 +5730,8 @@ nsDisplayWrapList::nsDisplayWrapList(nsDisplayListBuilder* aBuilder,
 
 nsDisplayWrapList::~nsDisplayWrapList() { MOZ_COUNT_DTOR(nsDisplayWrapList); }
 
-void nsDisplayWrapList::MergeDisplayListFromItem(nsDisplayListBuilder* aBuilder,
-                                                 const nsDisplayItem* aItem) {
+void nsDisplayWrapList::MergeDisplayListFromItem(
+    nsDisplayListBuilder* aBuilder, const nsDisplayWrapList* aItem) {
   const nsDisplayWrapList* wrappedItem = aItem->AsDisplayWrapList();
   MOZ_ASSERT(wrappedItem);
 
@@ -5825,7 +5826,7 @@ static LayerState RequiredLayerStateForChildren(
     const ContainerLayerParameters& aParameters, const nsDisplayList& aList,
     AnimatedGeometryRoot* aExpectedAnimatedGeometryRootForChildren) {
   LayerState result = LAYER_INACTIVE;
-  for (nsDisplayItem* i = aList.GetBottom(); i; i = i->GetAbove()) {
+  for (nsDisplayItem* i : aList) {
     if (result == LAYER_INACTIVE &&
         i->GetAnimatedGeometryRoot() !=
             aExpectedAnimatedGeometryRootForChildren) {
@@ -6058,15 +6059,19 @@ static const size_t kOpacityMaxListSize = kOpacityMaxChildCount * 2;
  * Otherwise returns true.
  */
 static bool CollectItemsWithOpacity(nsDisplayList* aList,
-                                    nsTArray<nsDisplayItem*>& aArray) {
+                                    nsTArray<nsPaintedDisplayItem*>& aArray) {
   if (aList->Count() > kOpacityMaxListSize) {
     // Exit early, since |aList| will likely contain more than
     // |kOpacityMaxChildCount| items.
     return false;
   }
 
-  for (nsDisplayItem* i = aList->GetBottom(); i; i = i->GetAbove()) {
+  for (nsDisplayItem* i : *aList) {
     const DisplayItemType type = i->GetType();
+
+    if (type == DisplayItemType::TYPE_COMPOSITOR_HITTEST_INFO) {
+      continue;
+    }
 
     // Descend only into wraplists.
     if (type == DisplayItemType::TYPE_WRAP_LIST) {
@@ -6078,15 +6083,16 @@ static bool CollectItemsWithOpacity(nsDisplayList* aList,
       continue;
     }
 
-    if (type == DisplayItemType::TYPE_COMPOSITOR_HITTEST_INFO) {
-      continue;
-    }
-
-    if (!i->CanApplyOpacity() || aArray.Length() == kOpacityMaxChildCount) {
+    if (aArray.Length() == kOpacityMaxChildCount) {
       return false;
     }
 
-    aArray.AppendElement(i);
+    auto* item = i->AsPaintedDisplayItem();
+    if (!item || !item->CanApplyOpacity()) {
+      return false;
+    }
+
+    aArray.AppendElement(item);
   }
 
   return true;
@@ -6099,20 +6105,20 @@ bool nsDisplayOpacity::ApplyOpacityToChildren(nsDisplayListBuilder* aBuilder) {
 
   // Iterate through the child display list and copy at most
   // |kOpacityMaxChildCount| child display item pointers to a temporary list.
-  AutoTArray<nsDisplayItem*, kOpacityMaxChildCount> items;
+  AutoTArray<nsPaintedDisplayItem*, kOpacityMaxChildCount> items;
   if (!CollectItemsWithOpacity(&mList, items)) {
     mChildOpacityState = ChildOpacityState::Deferred;
     return false;
   }
 
   struct {
-    nsDisplayItem* item;
+    nsPaintedDisplayItem* item;
     nsRect bounds;
   } children[kOpacityMaxChildCount];
 
   bool snap;
   size_t childCount = 0;
-  for (nsDisplayItem* item : items) {
+  for (nsPaintedDisplayItem* item : items) {
     children[childCount].item = item;
     children[childCount].bounds = item->GetBounds(aBuilder, &snap);
     childCount++;
@@ -6726,7 +6732,7 @@ void nsDisplaySubDocument::RemoveFrame(nsIFrame* aFrame) {
     mSubDocFrame = nullptr;
     SetDeletedFrame();
   }
-  nsDisplayItem::RemoveFrame(aFrame);
+  nsDisplayOwnLayer::RemoveFrame(aFrame);
 }
 
 void nsDisplaySubDocument::Disown() {
@@ -8420,7 +8426,7 @@ void nsDisplayTransform::ComputeBounds(nsDisplayListBuilder* aBuilder) {
 
   // Do not dive into another 3D context.
   if (!IsLeafOf3DContext()) {
-    for (nsDisplayItem* i = GetChildren()->GetBottom(); i; i = i->GetAbove()) {
+    for (nsDisplayItem* i : *GetChildren()) {
       i->DoUpdateBoundsPreserves3D(aBuilder);
     }
   }
@@ -8937,7 +8943,7 @@ bool nsDisplayPerspective::CreateWebRenderCommands(
 nsDisplayText::nsDisplayText(nsDisplayListBuilder* aBuilder,
                              nsTextFrame* aFrame,
                              const Maybe<bool>& aIsSelected)
-    : nsDisplayItem(aBuilder, aFrame),
+    : nsPaintedDisplayItem(aBuilder, aFrame),
       mOpacity(1.0f),
       mVisIStartEdge(0),
       mVisIEndEdge(0) {
@@ -8985,16 +8991,10 @@ bool nsDisplayText::CreateWebRenderCommands(
   auto* f = static_cast<nsTextFrame*>(mFrame);
   auto appUnitsPerDevPixel = f->PresContext()->AppUnitsPerDevPixel();
 
-  // FIXME: the webrender backend is having a lot of snapping issues, and
-  // having it do inflation for us is causing problems. For now, we pass
-  // down the wrong bounds. Try to turn this back on when things are in
-  // better shape.
-  //
-  // nsRect bounds = f->WebRenderBounds() + ToReferenceFrame();
+  nsRect bounds = f->WebRenderBounds() + ToReferenceFrame();
   // Bug 748228
-  // bounds.Inflate(appUnitsPerDevPixel);
+  bounds.Inflate(appUnitsPerDevPixel);
 
-  nsRect bounds = mBounds;
   if (bounds.IsEmpty()) {
     return true;
   }
@@ -9594,8 +9594,8 @@ static Maybe<wr::WrClipId> CreateSimpleClipRegion(
   AutoTArray<wr::ComplexClipRegion, 1> clipRegions;
 
   wr::LayoutRect rect;
-  switch (shape.GetShapeType()) {
-    case StyleBasicShapeType::Inset: {
+  switch (shape.tag) {
+    case StyleBasicShape::Tag::Inset: {
       const nsRect insetRect = ShapeUtils::ComputeInsetRect(shape, refBox) +
                                aDisplayItem.ToReferenceFrame();
 
@@ -9610,12 +9610,12 @@ static Maybe<wr::WrClipId> CreateSimpleClipRegion(
           LayoutDeviceRect::FromAppUnits(insetRect, appUnitsPerDevPixel));
       break;
     }
-    case StyleBasicShapeType::Ellipse:
-    case StyleBasicShapeType::Circle: {
+    case StyleBasicShape::Tag::Ellipse:
+    case StyleBasicShape::Tag::Circle: {
       nsPoint center = ShapeUtils::ComputeCircleOrEllipseCenter(shape, refBox);
 
       nsSize radii;
-      if (shape.GetShapeType() == StyleBasicShapeType::Ellipse) {
+      if (shape.IsEllipse()) {
         radii = ShapeUtils::ComputeEllipseRadii(shape, center, refBox);
       } else {
         nscoord radius = ShapeUtils::ComputeCircleRadius(shape, center, refBox);

@@ -30,6 +30,7 @@
 #include "mozilla/dom/PBrowser.h"
 #include "mozilla/dom/WindowProxyHolder.h"
 #include "mozilla/dom/BrowserBridgeChild.h"
+#include "mozilla/dom/SessionStoreListener.h"
 #include "mozilla/gfx/CrossProcessPaint.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/IMEStateManager.h"
@@ -472,8 +473,7 @@ BrowserChild::Observe(nsISupports* aSubject, const char* aTopic,
   return NS_OK;
 }
 
-void BrowserChild::ContentReceivedInputBlock(const ScrollableLayerGuid& aGuid,
-                                             uint64_t aInputBlockId,
+void BrowserChild::ContentReceivedInputBlock(uint64_t aInputBlockId,
                                              bool aPreventDefault) const {
   if (mApzcTreeManager) {
     mApzcTreeManager->ContentReceivedInputBlock(aInputBlockId, aPreventDefault);
@@ -598,13 +598,11 @@ nsresult BrowserChild::Init(mozIDOMWindowProxy* aParent) {
   nsWeakPtr weakPtrThis = do_GetWeakReference(
       static_cast<nsIBrowserChild*>(this));  // for capture by the lambda
   ContentReceivedInputBlockCallback callback(
-      [weakPtrThis](const ScrollableLayerGuid& aGuid, uint64_t aInputBlockId,
-                    bool aPreventDefault) {
+      [weakPtrThis](uint64_t aInputBlockId, bool aPreventDefault) {
         if (nsCOMPtr<nsIBrowserChild> browserChild =
                 do_QueryReferent(weakPtrThis)) {
           static_cast<BrowserChild*>(browserChild.get())
-              ->ContentReceivedInputBlock(aGuid, aInputBlockId,
-                                          aPreventDefault);
+              ->ContentReceivedInputBlock(aInputBlockId, aPreventDefault);
         }
       });
   mAPZEventState = new APZEventState(mPuppetWidget, std::move(callback));
@@ -615,6 +613,10 @@ nsresult BrowserChild::Init(mozIDOMWindowProxy* aParent) {
   if (recordreplay::IsRecordingOrReplaying()) {
     mPuppetWidget->CreateCompositor();
   }
+
+  mSessionStoreListener = new TabListener(docShell, nullptr);
+  rv = mSessionStoreListener->Init();
+  NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;
 }
@@ -967,6 +969,11 @@ void BrowserChild::DestroyWindow() {
   if (mCoalescedMouseEventFlusher) {
     mCoalescedMouseEventFlusher->RemoveObserver();
     mCoalescedMouseEventFlusher = nullptr;
+  }
+
+  if (mSessionStoreListener) {
+    mSessionStoreListener->RemoveListeners();
+    mSessionStoreListener = nullptr;
   }
 
   // In case we don't have chance to process all entries, clean all data in
@@ -1326,7 +1333,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvHandleTap(
   switch (aType) {
     case GeckoContentController::TapType::eSingleTap:
       if (mBrowserChildMessageManager) {
-        mAPZEventState->ProcessSingleTap(point, scale, aModifiers, aGuid, 1);
+        mAPZEventState->ProcessSingleTap(point, scale, aModifiers, 1);
       }
       break;
     case GeckoContentController::TapType::eDoubleTap:
@@ -1334,13 +1341,13 @@ mozilla::ipc::IPCResult BrowserChild::RecvHandleTap(
       break;
     case GeckoContentController::TapType::eSecondTap:
       if (mBrowserChildMessageManager) {
-        mAPZEventState->ProcessSingleTap(point, scale, aModifiers, aGuid, 2);
+        mAPZEventState->ProcessSingleTap(point, scale, aModifiers, 2);
       }
       break;
     case GeckoContentController::TapType::eLongTap:
       if (mBrowserChildMessageManager) {
         RefPtr<APZEventState> eventState(mAPZEventState);
-        eventState->ProcessLongTap(presShell, point, scale, aModifiers, aGuid,
+        eventState->ProcessLongTap(presShell, point, scale, aModifiers,
                                    aInputBlockId);
       }
       break;
@@ -1624,7 +1631,7 @@ void BrowserChild::HandleRealMouseButtonEvent(const WidgetMouseEvent& aEvent,
   if (aInputBlockId && aEvent.mFlags.mHandledByAPZ) {
     nsCOMPtr<Document> document(GetTopLevelDocument());
     postLayerization = APZCCallbackHelper::SendSetTargetAPZCNotification(
-        mPuppetWidget, document, aEvent, aGuid, aInputBlockId);
+        mPuppetWidget, document, aEvent, aGuid.mLayersId, aInputBlockId);
   }
 
   InputAPZContext context(aGuid, aInputBlockId, nsEventStatus_eIgnore,
@@ -1637,7 +1644,7 @@ void BrowserChild::HandleRealMouseButtonEvent(const WidgetMouseEvent& aEvent,
   DispatchWidgetEventViaAPZ(localEvent);
 
   if (aInputBlockId && aEvent.mFlags.mHandledByAPZ) {
-    mAPZEventState->ProcessMouseEvent(aEvent, aGuid, aInputBlockId);
+    mAPZEventState->ProcessMouseEvent(aEvent, aInputBlockId);
   }
 
   // Do this after the DispatchWidgetEventViaAPZ call above, so that if the
@@ -1717,7 +1724,7 @@ void BrowserChild::DispatchWheelEvent(const WidgetWheelEvent& aEvent,
     nsCOMPtr<Document> document(GetTopLevelDocument());
     UniquePtr<DisplayportSetListener> postLayerization =
         APZCCallbackHelper::SendSetTargetAPZCNotification(
-            mPuppetWidget, document, aEvent, aGuid, aInputBlockId);
+            mPuppetWidget, document, aEvent, aGuid.mLayersId, aInputBlockId);
     if (postLayerization && postLayerization->Register()) {
       Unused << postLayerization.release();
     }
@@ -1733,7 +1740,7 @@ void BrowserChild::DispatchWheelEvent(const WidgetWheelEvent& aEvent,
   }
 
   if (aInputBlockId && aEvent.mFlags.mHandledByAPZ) {
-    mAPZEventState->ProcessWheelEvent(localEvent, aGuid, aInputBlockId);
+    mAPZEventState->ProcessWheelEvent(localEvent, aInputBlockId);
   }
 }
 
@@ -1790,7 +1797,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvRealTouchEvent(
     }
     UniquePtr<DisplayportSetListener> postLayerization =
         APZCCallbackHelper::SendSetTargetAPZCNotification(
-            mPuppetWidget, document, localEvent, aGuid, aInputBlockId);
+            mPuppetWidget, document, localEvent, aGuid.mLayersId, aInputBlockId);
     if (postLayerization && postLayerization->Register()) {
       Unused << postLayerization.release();
     }
@@ -1909,6 +1916,12 @@ mozilla::ipc::IPCResult BrowserChild::RecvNativeSynthesisResponse(
     const uint64_t& aObserverId, const nsCString& aResponse) {
   mozilla::widget::AutoObserverNotifier::NotifySavedObserver(aObserverId,
                                                              aResponse.get());
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult BrowserChild::RecvFlushTabState(
+    const uint32_t& aFlushId) {
+  UpdateSessionStore(aFlushId);
   return IPC_OK();
 }
 
@@ -3591,6 +3604,33 @@ nsresult BrowserChild::PrepareProgressListenerData(
     }
   }
   return NS_OK;
+}
+
+bool BrowserChild::UpdateSessionStore(uint32_t aFlushId) {
+  if (!mSessionStoreListener) {
+    return false;
+  }
+  RefPtr<ContentSessionStore> store = mSessionStoreListener->GetSessionStore();
+
+  Maybe<nsCString> docShellCaps;
+  if (store->IsDocCapChanged()) {
+    docShellCaps.emplace(store->GetDocShellCaps());
+  }
+
+  Maybe<bool> privatedMode;
+  if (store->IsPrivateChanged()) {
+    privatedMode.emplace(store->GetPrivateModeEnabled());
+  }
+
+  nsTArray<int32_t> positionDescendants;
+  nsTArray<nsCString> positions;
+  if (store->IsScrollPositionChanged()) {
+    store->GetScrollPositions(positions, positionDescendants);
+  }
+
+  Unused << SendSessionStoreUpdate(docShellCaps, privatedMode, positions,
+                                   positionDescendants, aFlushId);
+  return true;
 }
 
 BrowserChildMessageManager::BrowserChildMessageManager(

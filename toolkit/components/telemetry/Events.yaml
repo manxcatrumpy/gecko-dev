@@ -74,6 +74,22 @@ activity_stream:
       session_id: The ID of the Activity Stream session in which the event occurred
       page: about:home or about_newtab - the page where the event occurred
       user_prefs: An integer representaing a user's A-S settings.
+  enroll:
+    objects: ["preference_study"]
+    release_channel_collection: opt-out
+    description: >
+      Sent when a user gets enrolled in a preference study.
+    bug_numbers: [1549784]
+    notification_emails:
+      - "najiang@mozilla.com"
+      - "edilee@mozilla.com"
+    record_in_processes: ["main"]
+    expiry_version: never
+    extra_keys:
+      experimentType: >
+        For preference_study recipes, the type of experiment this is ("exp" or "exp-highpop").
+      branch: >
+        For preference_study recipes, the slug of the branch that was chosen for this client.
 
 addonsManager:
   install:
@@ -181,6 +197,25 @@ addonsManager:
     expiry_version: "73"
     record_in_processes: ["main"]
     bug_numbers: [1500147, 1513344, 1529347]
+    release_channel_collection: opt-out
+  report:
+    description: >
+      An abuse report submitted by a user for a given extension. The object of the event
+      represent the report entry point, the value is the id of the addon being reported.
+    objects:
+    - menu
+    - toolbar_context_menu
+    - uninstall
+    extra_keys:
+      addon_type: The type of the add-on being reported (missing on ERROR_ADDON_NOT_FOUND).
+      error_type: >
+        AbuseReport Error Type (included in case of submission failures). The error types include
+        ERROR_ABORTED_SUBMIT, ERROR_ADDON_NOT_FOUND, ERROR_CLIENT, ERROR_NETWORK, ERROR_UNKNOWN,
+        ERROR_RECENT_SUBMIT, ERROR_SERVER
+    notification_emails: ["addons-dev-internal@mozilla.com"]
+    expiry_version: "73"
+    record_in_processes: ["main"]
+    bug_numbers: [1544927]
     release_channel_collection: opt-out
 
 extensions.data:

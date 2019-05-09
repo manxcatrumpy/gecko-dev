@@ -30,6 +30,23 @@ let ACTORS = {
 };
 
 let LEGACY_ACTORS = {
+  AboutLogins: {
+    child: {
+      matches: ["about:logins"],
+      module: "resource:///actors/AboutLoginsChild.jsm",
+      events: {
+        "AboutLoginsDeleteLogin": {wantUntrusted: true},
+        "AboutLoginsInit": {wantUntrusted: true},
+      },
+      messages: [
+        "AboutLogins:AllLogins",
+        "AboutLogins:LoginAdded",
+        "AboutLogins:LoginModified",
+        "AboutLogins:LoginRemoved",
+      ],
+    },
+  },
+
   AboutReader: {
     child: {
       module: "resource:///actors/AboutReaderChild.jsm",
@@ -175,7 +192,6 @@ let LEGACY_ACTORS = {
       module: "resource:///actors/NetErrorChild.jsm",
       events: {
         "AboutNetErrorLoad": {wantUntrusted: true},
-        "AboutNetErrorOpenCaptivePortal": {wantUntrusted: true},
         "AboutNetErrorSetAutomatic": {wantUntrusted: true},
         "AboutNetErrorResetPreferences": {wantUntrusted: true},
         "click": {},
@@ -183,7 +199,6 @@ let LEGACY_ACTORS = {
       matches: ["about:certerror?*", "about:neterror?*"],
       allFrames: true,
       messages: [
-        "Browser:CaptivePortalFreed",
         "CertErrorDetails",
       ],
     },
@@ -394,6 +409,7 @@ XPCOMUtils.defineLazyGetter(this, "WeaveService", () =>
 // lazy module getters
 
 XPCOMUtils.defineLazyModuleGetters(this, {
+  AboutNetErrorHandler: "resource:///modules/aboutpages/AboutNetErrorHandler.jsm",
   AboutPrivateBrowsingHandler: "resource:///modules/aboutpages/AboutPrivateBrowsingHandler.jsm",
   AddonManager: "resource://gre/modules/AddonManager.jsm",
   AppMenuNotifications: "resource://gre/modules/AppMenuNotifications.jsm",
@@ -449,6 +465,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
 
 // eslint-disable-next-line no-unused-vars
 XPCOMUtils.defineLazyModuleGetters(this, {
+  AboutLoginsParent: "resource:///modules/AboutLoginsParent.jsm",
   AsyncPrefs: "resource://gre/modules/AsyncPrefs.jsm",
   ContentClick: "resource:///modules/ContentClick.jsm",
   FormValidationHandler: "resource:///modules/FormValidationHandler.jsm",
@@ -527,6 +544,8 @@ const listeners = {
   },
 
   mm: {
+    "AboutLogins:DeleteLogin": ["AboutLoginsParent"],
+    "AboutLogins:Subscribe": ["AboutLoginsParent"],
     "Content:Click": ["ContentClick"],
     "ContentSearch": ["ContentSearch"],
     "FormValidation:ShowPopup": ["FormValidationHandler"],
@@ -1355,6 +1374,8 @@ BrowserGlue.prototype = {
 
     NewTabUtils.init();
 
+    AboutNetErrorHandler.init();
+
     AboutPrivateBrowsingHandler.init();
 
     PageActions.init();
@@ -1499,6 +1520,7 @@ BrowserGlue.prototype = {
 
     PageThumbs.uninit();
     NewTabUtils.uninit();
+    AboutNetErrorHandler.uninit();
     AboutPrivateBrowsingHandler.uninit();
     AutoCompletePopup.uninit();
     DateTimePickerParent.uninit();
@@ -1730,7 +1752,7 @@ BrowserGlue.prototype = {
       RFPHelper.init();
     });
 
-    Services.tm.idleDispatchToMainThread(() => {
+    ChromeUtils.idleDispatch(() => {
       Blocklist.loadBlocklistAsync();
     });
 

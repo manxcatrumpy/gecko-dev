@@ -366,7 +366,7 @@ VARCACHE_PREF(
   RelaxedAtomicBool, false
 )
 
-#ifdef NIGHTLY_BUILD
+#ifdef EARLY_BETA_OR_EARLIER
 # define PREF_VALUE  true
 #else
 # define PREF_VALUE  false
@@ -717,6 +717,12 @@ VARCACHE_PREF(
 VARCACHE_PREF(
   "dom.largeAllocation.forceEnable",
    dom_largeAllocation_forceEnable,
+  bool, false
+)
+
+VARCACHE_PREF(
+  "dom.metaElement.setCookie.allowed",
+   dom_metaElement_setCookie_allowed,
   bool, false
 )
 
@@ -1334,6 +1340,13 @@ VARCACHE_PREF(
 )
 #undef PREF_VALUE
 
+// Is support for -webkit-line-clamp enabled?
+VARCACHE_PREF(
+  "layout.css.webkit-line-clamp.enabled",
+  layout_css_webkit_line_clamp_enabled,
+  bool, true
+)
+
 //---------------------------------------------------------------------------
 // JavaScript prefs
 //---------------------------------------------------------------------------
@@ -1435,17 +1448,18 @@ VARCACHE_PREF(
 // reviewer had an unshakeable preference for that.
 
 // File-backed MediaCache size.
-#ifdef ANDROID
-# define PREF_VALUE  32768  // Measured in KiB
-#else
-# define PREF_VALUE 512000  // Measured in KiB
-#endif
 VARCACHE_PREF(
   "media.cache_size",
    MediaCacheSize,
-  RelaxedAtomicUint32, PREF_VALUE
+  RelaxedAtomicUint32, 512000 // Measured in KiB
 )
-#undef PREF_VALUE
+// Size of file backed MediaCache while on a connection which is cellular (3G, etc),
+// and thus assumed to be "expensive".
+VARCACHE_PREF(
+  "media.cache_size.cellular",
+   MediaCacheCellularSize,
+  RelaxedAtomicUint32, 32768 // Measured in KiB
+)
 
 // If a resource is known to be smaller than this size (in kilobytes), a
 // memory-backed MediaCache may be used; otherwise the (single shared global)
@@ -1474,32 +1488,30 @@ VARCACHE_PREF(
 
 // When a network connection is suspended, don't resume it until the amount of
 // buffered data falls below this threshold (in seconds).
-#ifdef ANDROID
-# define PREF_VALUE 10  // Use a smaller limit to save battery.
-#else
-# define PREF_VALUE 30
-#endif
 VARCACHE_PREF(
   "media.cache_resume_threshold",
    MediaCacheResumeThreshold,
-  RelaxedAtomicInt32, PREF_VALUE
+  RelaxedAtomicUint32, 30
 )
-#undef PREF_VALUE
+VARCACHE_PREF(
+  "media.cache_resume_threshold.cellular",
+   MediaCacheCellularResumeThreshold,
+  RelaxedAtomicUint32, 10
+)
 
 // Stop reading ahead when our buffered data is this many seconds ahead of the
 // current playback position. This limit can stop us from using arbitrary
 // amounts of network bandwidth prefetching huge videos.
-#ifdef ANDROID
-# define PREF_VALUE 30  // Use a smaller limit to save battery.
-#else
-# define PREF_VALUE 60
-#endif
 VARCACHE_PREF(
   "media.cache_readahead_limit",
    MediaCacheReadaheadLimit,
-  RelaxedAtomicInt32, PREF_VALUE
+  RelaxedAtomicUint32, 60
 )
-#undef PREF_VALUE
+VARCACHE_PREF(
+  "media.cache_readahead_limit.cellular",
+   MediaCacheCellularReadaheadLimit,
+  RelaxedAtomicUint32, 30
+)
 
 // AudioSink
 VARCACHE_PREF(
@@ -1596,7 +1608,7 @@ VARCACHE_PREF(
 # define PREF_VALUE true
 #elif defined(XP_MACOSX)
 # define PREF_VALUE true
-#elif defined(XP_UNIX)
+#elif defined(XP_LINUX) && !defined(ANDROID)
 # define PREF_VALUE true
 #else
 # define PREF_VALUE false

@@ -1185,6 +1185,7 @@ NS_QUERYFRAME_HEAD(nsHTMLScrollFrame)
   NS_QUERYFRAME_ENTRY(nsIScrollableFrame)
   NS_QUERYFRAME_ENTRY(nsIStatefulFrame)
   NS_QUERYFRAME_ENTRY(nsIScrollbarMediator)
+  NS_QUERYFRAME_ENTRY(nsHTMLScrollFrame)
 NS_QUERYFRAME_TAIL_INHERITING(nsContainerFrame)
 
 //----------nsXULScrollFrame-------------------------------------------
@@ -2703,6 +2704,27 @@ void ScrollFrameHelper::ScrollToImpl(nsPoint aPt, const nsRect& aRange,
     return;
   }
 
+  // If we are scrolling the RCD-RSF, and a visual scroll update is pending,
+  // cancel it; otherwise, it will clobber this scroll.
+  if (IsRootScrollFrameOfDocument() && presContext->IsRootContentDocument()) {
+    PresShell* ps = presContext->GetPresShell();
+    if (const auto& visualScrollUpdate = ps->GetPendingVisualScrollUpdate()) {
+      if (visualScrollUpdate->mVisualScrollOffset != aPt) {
+        // Only clobber if the scroll was originated by the main thread.
+        // Respect the priority of origins (an "eRestore" layout scroll should
+        // not clobber an "eMainThread" visual scroll.)
+        bool shouldClobber =
+            aOrigin == nsGkAtoms::other ||
+            (aOrigin == nsGkAtoms::restore &&
+             visualScrollUpdate->mUpdateType == FrameMetrics::eRestore);
+        if (shouldClobber) {
+          ps->AcknowledgePendingVisualScrollUpdate();
+          ps->ClearPendingVisualScrollUpdate();
+        }
+      }
+    }
+  }
+
   bool needFrameVisibilityUpdate = mLastUpdateFramesPos == nsPoint(-1, -1);
 
   nsPoint dist(std::abs(pt.x - mLastUpdateFramesPos.x),
@@ -3931,10 +3953,6 @@ bool ScrollFrameHelper::DecideScrollableLayer(
   // date if we just introduced a new animated geometry root.
   if (oldWillBuildScrollableLayer != mWillBuildScrollableLayer) {
     aBuilder->RecomputeCurrentAnimatedGeometryRoot();
-    MOZ_DIAGNOSTIC_ASSERT(!aBuilder->IsPartialUpdate() ||
-                              aBuilder->InInvalidSubtree() ||
-                              mOuter->IsFrameModified(),
-                          "Displayport changed without an invalidation");
   }
 
   mIsScrollableLayerInRootContainer =

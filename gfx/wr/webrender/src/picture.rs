@@ -6,39 +6,39 @@ use api::{FilterOp, MixBlendMode, PipelineId, PremultipliedColorF};
 use api::{PropertyBinding, PropertyBindingId};
 use api::{DebugFlags, RasterSpace, ColorF, ImageKey, ClipMode};
 use api::units::*;
-use box_shadow::{BLUR_SAMPLE_SCALE};
-use clip::{ClipChainId, ClipChainNode, ClipItem, ClipStore, ClipDataStore, ClipChainStack};
-use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX,
+use crate::box_shadow::{BLUR_SAMPLE_SCALE};
+use crate::clip::{ClipChainId, ClipChainNode, ClipItem, ClipStore, ClipDataStore, ClipChainStack};
+use crate::clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX,
     ClipScrollTree, CoordinateSystemId, SpatialNodeIndex, VisibleFace
 };
-use debug_colors;
+use crate::debug_colors;
 use euclid::{size2, vec3, TypedPoint2D, TypedScale, TypedSize2D};
 use euclid::approxeq::ApproxEq;
-use frame_builder::{FrameVisibilityContext, FrameVisibilityState};
-use intern::ItemUid;
-use internal_types::{FastHashMap, FastHashSet, PlaneSplitter};
-use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
-use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
-use gpu_types::{TransformPalette, UvRectKind};
+use crate::frame_builder::{FrameVisibilityContext, FrameVisibilityState};
+use crate::intern::ItemUid;
+use crate::internal_types::{FastHashMap, FastHashSet, PlaneSplitter};
+use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
+use crate::gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
+use crate::gpu_types::UvRectKind;
 use plane_split::{Clipper, Polygon, Splitter};
-use prim_store::{CoordinateSpaceMapping, SpaceMapper};
-use prim_store::{PictureIndex, PrimitiveInstance, PrimitiveInstanceKind};
-use prim_store::{get_raster_rects, PrimitiveScratchBuffer, VectorKey, PointKey};
-use prim_store::{OpacityBindingStorage, ImageInstanceStorage, OpacityBindingIndex, RectangleKey};
-use print_tree::PrintTreePrinter;
-use render_backend::DataStores;
-use render_task::{ClearMode, RenderTask, TileBlit};
-use render_task::{RenderTaskId, RenderTaskLocation};
-use resource_cache::ResourceCache;
-use scene::{FilterOpHelpers, SceneProperties};
-use scene_builder::Interners;
+use crate::prim_store::{CoordinateSpaceMapping, SpaceMapper};
+use crate::prim_store::{PictureIndex, PrimitiveInstance, PrimitiveInstanceKind};
+use crate::prim_store::{get_raster_rects, PrimitiveScratchBuffer, VectorKey, PointKey};
+use crate::prim_store::{OpacityBindingStorage, ImageInstanceStorage, OpacityBindingIndex, RectangleKey};
+use crate::print_tree::PrintTreePrinter;
+use crate::render_backend::DataStores;
+use crate::render_task::{ClearMode, RenderTask, TileBlit};
+use crate::render_task::{RenderTaskId, RenderTaskLocation};
+use crate::resource_cache::ResourceCache;
+use crate::scene::{FilterOpHelpers, SceneProperties};
+use crate::scene_builder::Interners;
 use smallvec::SmallVec;
 use std::{mem, u16};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use texture_cache::TextureCacheHandle;
-use tiling::RenderTargetKind;
-use util::{ComparableVec, TransformedRectKind, MatrixHelpers, MaxRect, scale_factors};
-use ::filterdata::{FilterDataHandle};
+use crate::texture_cache::TextureCacheHandle;
+use crate::tiling::RenderTargetKind;
+use crate::util::{ComparableVec, TransformedRectKind, MatrixHelpers, MaxRect, scale_factors};
+use crate::filterdata::{FilterDataHandle};
 
 /*
  A picture represents a dynamically rendered image. It consists of:
@@ -1780,6 +1780,17 @@ pub struct SurfaceIndex(pub usize);
 
 pub const ROOT_SURFACE_INDEX: SurfaceIndex = SurfaceIndex(0);
 
+#[derive(Debug, Copy, Clone)]
+pub struct SurfaceRenderTasks {
+    /// The root of the render task chain for this surface. This
+    /// is attached to parent tasks, and also the surface that
+    /// gets added during batching.
+    pub root: RenderTaskId,
+    /// The port of the render task change for this surface. This
+    /// is where child tasks for this surface get attached to.
+    pub port: RenderTaskId,
+}
+
 /// Information about an offscreen surface. For now,
 /// it contains information about the size and coordinate
 /// system of the surface. In the future, it will contain
@@ -1799,9 +1810,7 @@ pub struct SurfaceInfo {
     pub raster_spatial_node_index: SpatialNodeIndex,
     pub surface_spatial_node_index: SpatialNodeIndex,
     /// This is set when the render task is created.
-    pub surface: Option<RenderTaskId>,
-    /// A list of render tasks that are dependencies of this surface.
-    pub tasks: Vec<RenderTaskId>,
+    pub render_tasks: Option<SurfaceRenderTasks>,
     /// How much the local surface rect should be inflated (for blur radii).
     pub inflation_factor: f32,
     /// The device pixel ratio specific to this surface.
@@ -1839,20 +1848,13 @@ impl SurfaceInfo {
         SurfaceInfo {
             rect: PictureRect::zero(),
             map_local_to_surface,
-            surface: None,
+            render_tasks: None,
             raster_spatial_node_index,
             surface_spatial_node_index,
-            tasks: Vec::new(),
             inflation_factor,
             device_pixel_scale,
             allow_subpixel_aa,
         }
-    }
-
-    /// Take the set of child render tasks for this surface. This is
-    /// used when constructing the render task tree.
-    pub fn take_render_tasks(&mut self) -> Vec<RenderTaskId> {
-        mem::replace(&mut self.tasks, Vec::new())
     }
 }
 
@@ -2152,7 +2154,7 @@ pub struct PicturePrimitive {
     pub prim_list: PrimitiveList,
 
     #[cfg_attr(feature = "capture", serde(skip))]
-    pub state: Option<(PictureState, PictureContext)>,
+    pub state: Option<PictureState>,
 
     /// The pipeline that the primitives on this picture belong to.
     pub pipeline_id: PipelineId,
@@ -2350,9 +2352,10 @@ impl PicturePrimitive {
     pub fn take_context(
         &mut self,
         pic_index: PictureIndex,
+        clipped_prim_bounding_rect: WorldRect,
         surface_spatial_node_index: SpatialNodeIndex,
         raster_spatial_node_index: SpatialNodeIndex,
-        surface_index: SurfaceIndex,
+        parent_surface_index: SurfaceIndex,
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
     ) -> Option<(PictureContext, PictureState, PrimitiveList)> {
@@ -2378,7 +2381,7 @@ impl PicturePrimitive {
                 (
                     raster_spatial_node_index,
                     surface_spatial_node_index,
-                    surface_index,
+                    parent_surface_index,
                     0.0,
                 )
             }
@@ -2418,6 +2421,304 @@ impl PicturePrimitive {
             }
         };
 
+        let (is_composite, is_passthrough) = match self.raster_config {
+            Some(ref rc @ RasterConfig { composite_mode: PictureCompositeMode::TileCache { .. }, .. }) => {
+                // For a picture surface, just push any child tasks and tile
+                // blits up to the parent surface.
+                let port = frame_state
+                    .surfaces[parent_surface_index.0]
+                    .render_tasks
+                    .expect("bug: no render tasks set for parent!")
+                    .port;
+
+                frame_state
+                    .surfaces[rc.surface_index.0]
+                    .render_tasks = Some(SurfaceRenderTasks {
+                        root: RenderTaskId::INVALID,
+                        port,
+                    });
+
+                (false, false)
+            },
+            Some(ref raster_config) => {
+                let pic_rect = PictureRect::from_untyped(&self.snapped_local_rect.to_untyped());
+
+                let device_pixel_scale = frame_state
+                    .surfaces[raster_config.surface_index.0]
+                    .device_pixel_scale;
+
+                let (clipped, unclipped) = match get_raster_rects(
+                    pic_rect,
+                    &map_pic_to_raster,
+                    &map_raster_to_world,
+                    clipped_prim_bounding_rect,
+                    device_pixel_scale,
+                ) {
+                    Some(info) => info,
+                    None => {
+                        return None
+                    }
+                };
+                let transform = map_pic_to_raster.get_transform();
+
+                let (root, port) = match raster_config.composite_mode {
+                    PictureCompositeMode::TileCache { .. } => {
+                        unreachable!();
+                    }
+                    PictureCompositeMode::Filter(FilterOp::Blur(blur_radius)) => {
+                        let blur_std_deviation = blur_radius * device_pixel_scale.0;
+                        let scale_factors = scale_factors(&transform);
+                        let blur_std_deviation = DeviceSize::new(
+                            blur_std_deviation * scale_factors.0,
+                            blur_std_deviation * scale_factors.1
+                        );
+                        let inflation_factor = frame_state.surfaces[raster_config.surface_index.0].inflation_factor;
+                        let inflation_factor = (inflation_factor * device_pixel_scale.0).ceil() as i32;
+
+                        // The clipped field is the part of the picture that is visible
+                        // on screen. The unclipped field is the screen-space rect of
+                        // the complete picture, if no screen / clip-chain was applied
+                        // (this includes the extra space for blur region). To ensure
+                        // that we draw a large enough part of the picture to get correct
+                        // blur results, inflate that clipped area by the blur range, and
+                        // then intersect with the total screen rect, to minimize the
+                        // allocation size.
+                        let mut device_rect = clipped
+                            .inflate(inflation_factor, inflation_factor)
+                            .intersection(&unclipped.to_i32())
+                            .unwrap();
+                        // Adjust the size to avoid introducing sampling errors during the down-scaling passes.
+                        // what would be even better is to rasterize the picture at the down-scaled size
+                        // directly.
+                        device_rect.size = RenderTask::adjusted_blur_source_size(
+                            device_rect.size,
+                            blur_std_deviation,
+                        );
+
+                        let uv_rect_kind = calculate_uv_rect_kind(
+                            &pic_rect,
+                            &transform,
+                            &device_rect,
+                            device_pixel_scale,
+                            true,
+                        );
+
+                        let picture_task = RenderTask::new_picture(
+                            RenderTaskLocation::Dynamic(None, device_rect.size),
+                            unclipped.size,
+                            pic_index,
+                            device_rect.origin,
+                            Vec::new(),
+                            uv_rect_kind,
+                            raster_spatial_node_index,
+                            device_pixel_scale,
+                        );
+
+                        let picture_task_id = frame_state.render_tasks.add(picture_task);
+
+                        let blur_render_task = RenderTask::new_blur(
+                            blur_std_deviation,
+                            picture_task_id,
+                            frame_state.render_tasks,
+                            RenderTargetKind::Color,
+                            ClearMode::Transparent,
+                        );
+
+                        let render_task_id = frame_state.render_tasks.add(blur_render_task);
+
+                        (render_task_id, picture_task_id)
+                    }
+                    PictureCompositeMode::Filter(FilterOp::DropShadow(_, blur_radius, _)) => {
+                        let blur_std_deviation = blur_radius * device_pixel_scale.0;
+                        let blur_range = (blur_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
+                        let rounded_std_dev = blur_std_deviation.round();
+                        let rounded_std_dev = DeviceSize::new(rounded_std_dev, rounded_std_dev);
+                        // The clipped field is the part of the picture that is visible
+                        // on screen. The unclipped field is the screen-space rect of
+                        // the complete picture, if no screen / clip-chain was applied
+                        // (this includes the extra space for blur region). To ensure
+                        // that we draw a large enough part of the picture to get correct
+                        // blur results, inflate that clipped area by the blur range, and
+                        // then intersect with the total screen rect, to minimize the
+                        // allocation size.
+                        let mut device_rect = clipped.inflate(blur_range, blur_range)
+                                .intersection(&unclipped.to_i32())
+                                .unwrap();
+                        device_rect.size = RenderTask::adjusted_blur_source_size(
+                            device_rect.size,
+                            rounded_std_dev,
+                        );
+
+                        let uv_rect_kind = calculate_uv_rect_kind(
+                            &pic_rect,
+                            &transform,
+                            &device_rect,
+                            device_pixel_scale,
+                            true,
+                        );
+
+                        let mut picture_task = RenderTask::new_picture(
+                            RenderTaskLocation::Dynamic(None, device_rect.size),
+                            unclipped.size,
+                            pic_index,
+                            device_rect.origin,
+                            Vec::new(),
+                            uv_rect_kind,
+                            raster_spatial_node_index,
+                            device_pixel_scale,
+                        );
+                        picture_task.mark_for_saving();
+
+                        let picture_task_id = frame_state.render_tasks.add(picture_task);
+
+                        let blur_render_task = RenderTask::new_blur(
+                            rounded_std_dev,
+                            picture_task_id,
+                            frame_state.render_tasks,
+                            RenderTargetKind::Color,
+                            ClearMode::Transparent,
+                        );
+
+                        self.secondary_render_task_id = Some(picture_task_id);
+
+                        let render_task_id = frame_state.render_tasks.add(blur_render_task);
+
+                        (render_task_id, picture_task_id)
+                    }
+                    PictureCompositeMode::MixBlend(..) if !frame_context.fb_config.gpu_supports_advanced_blend => {
+                        let uv_rect_kind = calculate_uv_rect_kind(
+                            &pic_rect,
+                            &transform,
+                            &clipped,
+                            device_pixel_scale,
+                            true,
+                        );
+
+                        let picture_task = RenderTask::new_picture(
+                            RenderTaskLocation::Dynamic(None, clipped.size),
+                            unclipped.size,
+                            pic_index,
+                            clipped.origin,
+                            Vec::new(),
+                            uv_rect_kind,
+                            raster_spatial_node_index,
+                            device_pixel_scale,
+                        );
+
+                        let readback_task_id = frame_state.render_tasks.add(
+                            RenderTask::new_readback(clipped)
+                        );
+
+                        frame_state.render_tasks.add_dependency(
+                            frame_state.surfaces[parent_surface_index.0].render_tasks.unwrap().port,
+                            readback_task_id,
+                        );
+
+                        self.secondary_render_task_id = Some(readback_task_id);
+
+                        let render_task_id = frame_state.render_tasks.add(picture_task);
+
+                        (render_task_id, render_task_id)
+                    }
+                    PictureCompositeMode::Filter(..) => {
+                        let uv_rect_kind = calculate_uv_rect_kind(
+                            &pic_rect,
+                            &transform,
+                            &clipped,
+                            device_pixel_scale,
+                            true,
+                        );
+
+                        let picture_task = RenderTask::new_picture(
+                            RenderTaskLocation::Dynamic(None, clipped.size),
+                            unclipped.size,
+                            pic_index,
+                            clipped.origin,
+                            Vec::new(),
+                            uv_rect_kind,
+                            raster_spatial_node_index,
+                            device_pixel_scale,
+                        );
+
+                        let render_task_id = frame_state.render_tasks.add(picture_task);
+
+                        (render_task_id, render_task_id)
+                    }
+                    PictureCompositeMode::ComponentTransferFilter(..) => {
+                        let uv_rect_kind = calculate_uv_rect_kind(
+                            &pic_rect,
+                            &transform,
+                            &clipped,
+                            device_pixel_scale,
+                            true,
+                        );
+
+                        let picture_task = RenderTask::new_picture(
+                            RenderTaskLocation::Dynamic(None, clipped.size),
+                            unclipped.size,
+                            pic_index,
+                            clipped.origin,
+                            Vec::new(),
+                            uv_rect_kind,
+                            raster_spatial_node_index,
+                            device_pixel_scale,
+                        );
+
+                        let render_task_id = frame_state.render_tasks.add(picture_task);
+
+                        (render_task_id, render_task_id)
+                    }
+                    PictureCompositeMode::MixBlend(..) |
+                    PictureCompositeMode::Blit(_) => {
+                        // The SplitComposite shader used for 3d contexts doesn't snap
+                        // to pixels, so we shouldn't snap our uv coordinates either.
+                        let supports_snapping = match self.context_3d {
+                            Picture3DContext::In{ .. } => false,
+                            _ => true,
+                        };
+
+                        let uv_rect_kind = calculate_uv_rect_kind(
+                            &pic_rect,
+                            &transform,
+                            &clipped,
+                            device_pixel_scale,
+                            supports_snapping,
+                        );
+
+                        let picture_task = RenderTask::new_picture(
+                            RenderTaskLocation::Dynamic(None, clipped.size),
+                            unclipped.size,
+                            pic_index,
+                            clipped.origin,
+                            Vec::new(),
+                            uv_rect_kind,
+                            raster_spatial_node_index,
+                            device_pixel_scale,
+                        );
+
+                        let render_task_id = frame_state.render_tasks.add(picture_task);
+
+                        (render_task_id, render_task_id)
+                    }
+                };
+
+                frame_state.surfaces[raster_config.surface_index.0].render_tasks = Some(SurfaceRenderTasks {
+                    root,
+                    port,
+                });
+
+                frame_state.render_tasks.add_dependency(
+                    frame_state.surfaces[parent_surface_index.0].render_tasks.unwrap().port,
+                    root,
+                );
+
+                (true, false)
+            }
+            None => {
+                (false, true)
+            }
+        };
+
         let state = PictureState {
             //TODO: check for MAX_CACHE_SIZE here?
             map_local_to_pic,
@@ -2425,18 +2726,6 @@ impl PicturePrimitive {
             map_pic_to_raster,
             map_raster_to_world,
             plane_splitter,
-        };
-
-        let (is_composite, is_passthrough) = match self.raster_config {
-            Some(RasterConfig { composite_mode: PictureCompositeMode::TileCache { .. }, .. }) => {
-                (false, false)
-            },
-            Some(_) => {
-                (true, false)
-            }
-            None => {
-                (false, true)
-            }
         };
 
         let mut dirty_region_count = 0;
@@ -2488,10 +2777,10 @@ impl PicturePrimitive {
         }
 
         self.prim_list = prim_list;
-        self.state = Some((state, context));
+        self.state = Some(state);
     }
 
-    pub fn take_state_and_context(&mut self) -> (PictureState, PictureContext) {
+    pub fn take_state(&mut self) -> PictureState {
         self.state.take().expect("bug: no state present!")
     }
 
@@ -2500,15 +2789,16 @@ impl PicturePrimitive {
     /// given plane splitter.
     pub fn add_split_plane(
         splitter: &mut PlaneSplitter,
-        transforms: &TransformPalette,
+        clip_scroll_tree: &ClipScrollTree,
         prim_spatial_node_index: SpatialNodeIndex,
         original_local_rect: LayoutRect,
         combined_local_clip_rect: &LayoutRect,
         world_rect: WorldRect,
         plane_split_anchor: usize,
     ) -> bool {
-        let transform = transforms
-            .get_world_transform(prim_spatial_node_index);
+        let transform = clip_scroll_tree
+            .get_world_transform(prim_spatial_node_index)
+            .flattened;
         let matrix = transform.cast();
 
         // Apply the local clip rect here, before splitting. This is
@@ -2526,8 +2816,11 @@ impl PicturePrimitive {
         let world_rect = world_rect.cast();
 
         if transform.is_simple_translation() {
-            let inv_transform = transforms
-                .get_world_inv_transform(prim_spatial_node_index);
+            let inv_transform = clip_scroll_tree
+                .get_world_transform(prim_spatial_node_index)
+                .flattened
+                .inverse()
+                .expect("Simple translation, really?");
             let polygon = Polygon::from_transformed_rect_with_inverse(
                 local_rect,
                 &matrix,
@@ -2558,7 +2851,8 @@ impl PicturePrimitive {
     pub fn resolve_split_planes(
         &mut self,
         splitter: &mut PlaneSplitter,
-        frame_state: &mut FrameBuildingState,
+        gpu_cache: &mut GpuCache,
+        clip_scroll_tree: &ClipScrollTree,
     ) {
         let ordered = match self.context_3d {
             Picture3DContext::In { root_data: Some(ref mut list), .. } => list,
@@ -2570,7 +2864,15 @@ impl PicturePrimitive {
         // Z axis is directed at the screen, `sort` is ascending, and we need back-to-front order.
         for poly in splitter.sort(vec3(0.0, 0.0, 1.0)) {
             let spatial_node_index = self.prim_list.prim_instances[poly.anchor].spatial_node_index;
-            let transform = frame_state.transforms.get_world_inv_transform(spatial_node_index);
+            let transform = match clip_scroll_tree
+                .get_world_transform(spatial_node_index)
+                .flattened
+                .inverse()
+            {
+                Some(transform) => transform,
+                // logging this would be a bit too verbose
+                None => continue,
+            };
 
             let local_points = [
                 transform.transform_point3d(&poly.points[0].cast()).unwrap(),
@@ -2582,8 +2884,8 @@ impl PicturePrimitive {
                 [local_points[0].x, local_points[0].y, local_points[1].x, local_points[1].y].into(),
                 [local_points[2].x, local_points[2].y, local_points[3].x, local_points[3].y].into(),
             ];
-            let gpu_handle = frame_state.gpu_cache.push_per_frame_blocks(&gpu_blocks);
-            let gpu_address = frame_state.gpu_cache.get_address(&gpu_handle);
+            let gpu_handle = gpu_cache.push_per_frame_blocks(&gpu_blocks);
+            let gpu_address = gpu_cache.get_address(&gpu_handle);
 
             ordered.push(OrderedPictureChild {
                 anchor: poly.anchor,
@@ -2713,7 +3015,7 @@ impl PicturePrimitive {
             // rasterization root should be established.
             let establishes_raster_root = frame_context.clip_scroll_tree
                 .get_relative_transform(surface_spatial_node_index, parent_raster_node_index)
-                .is_perspective;
+                .has_perspective;
 
             // Disallow subpixel AA if an intermediate surface is needed.
             // TODO(lsalzman): allow overriding parent if intermediate surface is opaque
@@ -2876,17 +3178,18 @@ impl PicturePrimitive {
 
     pub fn prepare_for_render(
         &mut self,
-        pic_index: PictureIndex,
-        clipped_prim_bounding_rect: WorldRect,
-        surface_index: SurfaceIndex,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
         data_stores: &mut DataStores,
     ) -> bool {
-        let (mut pic_state_for_children, pic_context) = self.take_state_and_context();
+        let mut pic_state_for_children = self.take_state();
 
         if let Some(ref mut splitter) = pic_state_for_children.plane_splitter {
-            self.resolve_split_planes(splitter, frame_state);
+            self.resolve_split_planes(
+                splitter,
+                &mut frame_state.gpu_cache,
+                &frame_context.clip_scroll_tree,
+            );
         }
 
         let raster_config = match self.raster_config {
@@ -2896,36 +3199,6 @@ impl PicturePrimitive {
             }
         };
 
-        let (raster_spatial_node_index, child_tasks, device_pixel_scale) = {
-            let surface_info = &mut frame_state.surfaces[raster_config.surface_index.0];
-            (
-                surface_info.raster_spatial_node_index,
-                surface_info.take_render_tasks(),
-                surface_info.device_pixel_scale,
-            )
-        };
-
-        let (map_raster_to_world, map_pic_to_raster) = create_raster_mappers(
-            self.spatial_node_index,
-            raster_spatial_node_index,
-            frame_context.screen_world_rect,
-            frame_context.clip_scroll_tree,
-        );
-
-        let pic_rect = PictureRect::from_untyped(&self.snapped_local_rect.to_untyped());
-
-        let (clipped, unclipped) = match get_raster_rects(
-            pic_rect,
-            &map_pic_to_raster,
-            &map_raster_to_world,
-            clipped_prim_bounding_rect,
-            device_pixel_scale,
-        ) {
-            Some(info) => info,
-            None => return false,
-        };
-        let transform = map_pic_to_raster.get_transform();
-
         // TODO(gw): Almost all of the Picture types below use extra_gpu_cache_data
         //           to store the same type of data. The exception is the filter
         //           with a ColorMatrix, which stores the color matrix here. It's
@@ -2933,136 +3206,10 @@ impl PicturePrimitive {
         //           Perhaps store the color matrix after the common data, even though
         //           it's not used by that shader.
 
-        let surface = match raster_config.composite_mode {
-            PictureCompositeMode::TileCache { .. } => {
-                // For a picture surface, just push any child tasks and tile
-                // blits up to the parent surface.
-                let surface = &mut frame_state.surfaces[surface_index.0];
-                surface.tasks.extend(child_tasks);
-
-                return true;
-            }
-            PictureCompositeMode::Filter(FilterOp::Blur(blur_radius)) => {
-                let blur_std_deviation = blur_radius * device_pixel_scale.0;
-                let scale_factors = scale_factors(&transform);
-                let blur_std_deviation = DeviceSize::new(
-                    blur_std_deviation * scale_factors.0,
-                    blur_std_deviation * scale_factors.1
-                );
-                let inflation_factor = frame_state.surfaces[raster_config.surface_index.0].inflation_factor;
-                let inflation_factor = (inflation_factor * device_pixel_scale.0).ceil() as i32;
-
-                // The clipped field is the part of the picture that is visible
-                // on screen. The unclipped field is the screen-space rect of
-                // the complete picture, if no screen / clip-chain was applied
-                // (this includes the extra space for blur region). To ensure
-                // that we draw a large enough part of the picture to get correct
-                // blur results, inflate that clipped area by the blur range, and
-                // then intersect with the total screen rect, to minimize the
-                // allocation size.
-                let mut device_rect = clipped
-                    .inflate(inflation_factor, inflation_factor)
-                    .intersection(&unclipped.to_i32())
-                    .unwrap();
-                // Adjust the size to avoid introducing sampling errors during the down-scaling passes.
-                // what would be even better is to rasterize the picture at the down-scaled size
-                // directly.
-                device_rect.size = RenderTask::adjusted_blur_source_size(
-                    device_rect.size,
-                    blur_std_deviation,
-                );
-
-                let uv_rect_kind = calculate_uv_rect_kind(
-                    &pic_rect,
-                    &transform,
-                    &device_rect,
-                    device_pixel_scale,
-                    true,
-                );
-
-                let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, device_rect.size),
-                    unclipped.size,
-                    pic_index,
-                    device_rect.origin,
-                    child_tasks,
-                    uv_rect_kind,
-                    pic_context.raster_spatial_node_index,
-                    device_pixel_scale,
-                );
-
-                let picture_task_id = frame_state.render_tasks.add(picture_task);
-
-                let blur_render_task = RenderTask::new_blur(
-                    blur_std_deviation,
-                    picture_task_id,
-                    frame_state.render_tasks,
-                    RenderTargetKind::Color,
-                    ClearMode::Transparent,
-                );
-
-                let render_task_id = frame_state.render_tasks.add(blur_render_task);
-
-                frame_state.surfaces[surface_index.0].tasks.push(render_task_id);
-
-                render_task_id
-            }
-            PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, color)) => {
-                let blur_std_deviation = blur_radius * device_pixel_scale.0;
-                let blur_range = (blur_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
-                let rounded_std_dev = blur_std_deviation.round();
-                let rounded_std_dev = DeviceSize::new(rounded_std_dev, rounded_std_dev);
-                // The clipped field is the part of the picture that is visible
-                // on screen. The unclipped field is the screen-space rect of
-                // the complete picture, if no screen / clip-chain was applied
-                // (this includes the extra space for blur region). To ensure
-                // that we draw a large enough part of the picture to get correct
-                // blur results, inflate that clipped area by the blur range, and
-                // then intersect with the total screen rect, to minimize the
-                // allocation size.
-                let mut device_rect = clipped.inflate(blur_range, blur_range)
-                        .intersection(&unclipped.to_i32())
-                        .unwrap();
-                device_rect.size = RenderTask::adjusted_blur_source_size(
-                    device_rect.size,
-                    rounded_std_dev,
-                );
-
-                let uv_rect_kind = calculate_uv_rect_kind(
-                    &pic_rect,
-                    &transform,
-                    &device_rect,
-                    device_pixel_scale,
-                    true,
-                );
-
-                let mut picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, device_rect.size),
-                    unclipped.size,
-                    pic_index,
-                    device_rect.origin,
-                    child_tasks,
-                    uv_rect_kind,
-                    pic_context.raster_spatial_node_index,
-                    device_pixel_scale,
-                );
-                picture_task.mark_for_saving();
-
-                let picture_task_id = frame_state.render_tasks.add(picture_task);
-
-                let blur_render_task = RenderTask::new_blur(
-                    rounded_std_dev,
-                    picture_task_id,
-                    frame_state.render_tasks,
-                    RenderTargetKind::Color,
-                    ClearMode::Transparent,
-                );
-
-                self.secondary_render_task_id = Some(picture_task_id);
-
-                let render_task_id = frame_state.render_tasks.add(blur_render_task);
-                frame_state.surfaces[surface_index.0].tasks.push(render_task_id);
-
+        match raster_config.composite_mode {
+            PictureCompositeMode::TileCache { .. } => {}
+            PictureCompositeMode::Filter(FilterOp::Blur(..)) => {}
+            PictureCompositeMode::Filter(FilterOp::DropShadow(offset, _, color)) => {
                 if let Some(mut request) = frame_state.gpu_cache.request(&mut self.extra_gpu_data_handle) {
                     // TODO(gw): This is very hacky code below! It stores an extra
                     //           brush primitive below for the special case of a
@@ -3090,40 +3237,8 @@ impl PicturePrimitive {
                     request.push(shadow_rect);
                     request.push([0.0, 0.0, 0.0, 0.0]);
                 }
-
-                render_task_id
             }
-            PictureCompositeMode::MixBlend(..) if !frame_context.fb_config.gpu_supports_advanced_blend => {
-                let uv_rect_kind = calculate_uv_rect_kind(
-                    &pic_rect,
-                    &transform,
-                    &clipped,
-                    device_pixel_scale,
-                    true,
-                );
-
-                let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, clipped.size),
-                    unclipped.size,
-                    pic_index,
-                    clipped.origin,
-                    child_tasks,
-                    uv_rect_kind,
-                    pic_context.raster_spatial_node_index,
-                    device_pixel_scale,
-                );
-
-                let readback_task_id = frame_state.render_tasks.add(
-                    RenderTask::new_readback(clipped)
-                );
-
-                self.secondary_render_task_id = Some(readback_task_id);
-                frame_state.surfaces[surface_index.0].tasks.push(readback_task_id);
-
-                let render_task_id = frame_state.render_tasks.add(picture_task);
-                frame_state.surfaces[surface_index.0].tasks.push(render_task_id);
-                render_task_id
-            }
+            PictureCompositeMode::MixBlend(..) if !frame_context.fb_config.gpu_supports_advanced_blend => {}
             PictureCompositeMode::Filter(ref filter) => {
                 if let FilterOp::ColorMatrix(m) = *filter {
                     if let Some(mut request) = frame_state.gpu_cache.request(&mut self.extra_gpu_data_handle) {
@@ -3132,92 +3247,14 @@ impl PicturePrimitive {
                         }
                     }
                 }
-
-                let uv_rect_kind = calculate_uv_rect_kind(
-                    &pic_rect,
-                    &transform,
-                    &clipped,
-                    device_pixel_scale,
-                    true,
-                );
-
-                let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, clipped.size),
-                    unclipped.size,
-                    pic_index,
-                    clipped.origin,
-                    child_tasks,
-                    uv_rect_kind,
-                    pic_context.raster_spatial_node_index,
-                    device_pixel_scale,
-                );
-
-                let render_task_id = frame_state.render_tasks.add(picture_task);
-                frame_state.surfaces[surface_index.0].tasks.push(render_task_id);
-                render_task_id
             }
             PictureCompositeMode::ComponentTransferFilter(handle) => {
                 let filter_data = &mut data_stores.filter_data[handle];
                 filter_data.update(frame_state);
-
-                let uv_rect_kind = calculate_uv_rect_kind(
-                    &pic_rect,
-                    &transform,
-                    &clipped,
-                    device_pixel_scale,
-                    true,
-                );
-
-                let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, clipped.size),
-                    unclipped.size,
-                    pic_index,
-                    clipped.origin,
-                    child_tasks,
-                    uv_rect_kind,
-                    pic_context.raster_spatial_node_index,
-                    device_pixel_scale,
-                );
-
-                let render_task_id = frame_state.render_tasks.add(picture_task);
-                frame_state.surfaces[surface_index.0].tasks.push(render_task_id);
-                render_task_id
             }
             PictureCompositeMode::MixBlend(..) |
-            PictureCompositeMode::Blit(_) => {
-                // The SplitComposite shader used for 3d contexts doesn't snap
-                // to pixels, so we shouldn't snap our uv coordinates either.
-                let supports_snapping = match self.context_3d {
-                    Picture3DContext::In{ .. } => false,
-                    _ => true,
-                };
-
-                let uv_rect_kind = calculate_uv_rect_kind(
-                    &pic_rect,
-                    &transform,
-                    &clipped,
-                    device_pixel_scale,
-                    supports_snapping,
-                );
-
-                let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, clipped.size),
-                    unclipped.size,
-                    pic_index,
-                    clipped.origin,
-                    child_tasks,
-                    uv_rect_kind,
-                    pic_context.raster_spatial_node_index,
-                    device_pixel_scale,
-                );
-
-                let render_task_id = frame_state.render_tasks.add(picture_task);
-                frame_state.surfaces[surface_index.0].tasks.push(render_task_id);
-                render_task_id
-            }
-        };
-
-        frame_state.surfaces[raster_config.surface_index.0].surface = Some(surface);
+            PictureCompositeMode::Blit(_) => {}
+        }
 
         true
     }

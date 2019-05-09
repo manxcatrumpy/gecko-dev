@@ -1823,9 +1823,7 @@ nsDocumentViewer::Destroy() {
   if (mPrintJob) {
     RefPtr<nsPrintJob> printJob = std::move(mPrintJob);
 #  ifdef NS_PRINT_PREVIEW
-    bool doingPrintPreview;
-    printJob->GetDoingPrintPreview(&doingPrintPreview);
-    if (doingPrintPreview) {
+    if (printJob->IsDoingPrintPreview()) {
       printJob->FinishPrintPreview();
     }
 #  endif
@@ -2420,8 +2418,7 @@ nsView* nsDocumentViewer::FindContainerView() {
     return nullptr;
   }
 
-  nsIFrame* subdocFrame =
-      nsLayoutUtils::GetRealPrimaryFrameFor(containerElement);
+  nsIFrame* subdocFrame = containerElement->GetPrimaryFrame();
   if (!subdocFrame) {
     // XXX Silenced by default in bug 1175289
     LAYOUT_WARNING("Subdocument container has no frame");
@@ -3724,11 +3721,8 @@ NS_IMETHODIMP
 nsDocumentViewer::GetDoingPrint(bool* aDoingPrint) {
   NS_ENSURE_ARG_POINTER(aDoingPrint);
 
-  *aDoingPrint = false;
-  if (mPrintJob) {
-    // XXX shouldn't this be GetDoingPrint() ?
-    return mPrintJob->GetDoingPrintPreview(aDoingPrint);
-  }
+  // XXX shouldn't this be GetDoingPrint() ?
+  *aDoingPrint = mPrintJob ? mPrintJob->IsDoingPrintPreview() : false;
   return NS_OK;
 }
 
@@ -3737,10 +3731,7 @@ NS_IMETHODIMP
 nsDocumentViewer::GetDoingPrintPreview(bool* aDoingPrintPreview) {
   NS_ENSURE_ARG_POINTER(aDoingPrintPreview);
 
-  *aDoingPrintPreview = false;
-  if (mPrintJob) {
-    return mPrintJob->GetDoingPrintPreview(aDoingPrintPreview);
-  }
+  *aDoingPrintPreview = mPrintJob ? mPrintJob->IsDoingPrintPreview() : false;
   return NS_OK;
 }
 
@@ -3752,7 +3743,8 @@ nsDocumentViewer::GetCurrentPrintSettings(
   *aCurrentPrintSettings = nullptr;
   NS_ENSURE_TRUE(mPrintJob, NS_ERROR_FAILURE);
 
-  return mPrintJob->GetCurrentPrintSettings(aCurrentPrintSettings);
+  *aCurrentPrintSettings = mPrintJob->GetCurrentPrintSettings().take();
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -3794,7 +3786,8 @@ nsDocumentViewer::GetIsFramesetFrameSelected(bool* aIsFramesetFrameSelected) {
   *aIsFramesetFrameSelected = false;
   NS_ENSURE_TRUE(mPrintJob, NS_ERROR_FAILURE);
 
-  return mPrintJob->GetIsFramesetFrameSelected(aIsFramesetFrameSelected);
+  *aIsFramesetFrameSelected = mPrintJob->IsFramesetFrameSelected();
+  return NS_OK;
 #  else
   return NS_ERROR_FAILURE;
 #  endif
@@ -3806,7 +3799,8 @@ nsDocumentViewer::GetPrintPreviewNumPages(int32_t* aPrintPreviewNumPages) {
   NS_ENSURE_ARG_POINTER(aPrintPreviewNumPages);
   NS_ENSURE_TRUE(mPrintJob, NS_ERROR_FAILURE);
 
-  return mPrintJob->GetPrintPreviewNumPages(aPrintPreviewNumPages);
+  *aPrintPreviewNumPages = mPrintJob->GetPrintPreviewNumPages();
+  return *aPrintPreviewNumPages > 0 ? NS_OK : NS_ERROR_FAILURE;
 #  else
   return NS_ERROR_FAILURE;
 #  endif
@@ -3818,7 +3812,8 @@ nsDocumentViewer::GetIsFramesetDocument(bool* aIsFramesetDocument) {
   *aIsFramesetDocument = false;
   NS_ENSURE_TRUE(mPrintJob, NS_ERROR_FAILURE);
 
-  return mPrintJob->GetIsFramesetDocument(aIsFramesetDocument);
+  *aIsFramesetDocument = mPrintJob->IsFramesetDocument();
+  return NS_OK;
 #  else
   return NS_ERROR_FAILURE;
 #  endif
@@ -3830,7 +3825,8 @@ nsDocumentViewer::GetIsIFrameSelected(bool* aIsIFrameSelected) {
   *aIsIFrameSelected = false;
   NS_ENSURE_TRUE(mPrintJob, NS_ERROR_FAILURE);
 
-  return mPrintJob->GetIsIFrameSelected(aIsIFrameSelected);
+  *aIsIFrameSelected = mPrintJob->IsIFrameSelected();
+  return NS_OK;
 #  else
   return NS_ERROR_FAILURE;
 #  endif
@@ -3842,7 +3838,8 @@ nsDocumentViewer::GetIsRangeSelection(bool* aIsRangeSelection) {
   *aIsRangeSelection = false;
   NS_ENSURE_TRUE(mPrintJob, NS_ERROR_FAILURE);
 
-  return mPrintJob->GetIsRangeSelection(aIsRangeSelection);
+  *aIsRangeSelection = mPrintJob->IsRangeSelection();
+  return NS_OK;
 #  else
   return NS_ERROR_FAILURE;
 #  endif

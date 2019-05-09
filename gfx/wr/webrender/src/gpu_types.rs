@@ -4,13 +4,13 @@
 
 use api::{DocumentLayer, PremultipliedColorF};
 use api::units::*;
-use clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
-use gpu_cache::{GpuCacheAddress, GpuDataRequest};
-use internal_types::FastHashMap;
-use prim_store::EdgeAaSegmentMask;
-use render_task::RenderTaskAddress;
+use crate::clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
+use crate::gpu_cache::{GpuCacheAddress, GpuDataRequest};
+use crate::internal_types::FastHashMap;
+use crate::prim_store::EdgeAaSegmentMask;
+use crate::render_task::RenderTaskAddress;
 use std::i32;
-use util::{TransformedRectKind, MatrixHelpers};
+use crate::util::{TransformedRectKind, MatrixHelpers};
 
 // Contains type that must exactly match the same structures declared in GLSL.
 
@@ -470,7 +470,7 @@ struct RelativeTransformKey {
 //           specifying a coordinate system that the transform
 //           should be relative to.
 pub struct TransformPalette {
-    pub transforms: Vec<TransformData>,
+    transforms: Vec<TransformData>,
     metadata: Vec<TransformMetadata>,
     map: FastHashMap<RelativeTransformKey, usize>,
 }
@@ -483,6 +483,10 @@ impl TransformPalette {
             metadata: Vec::new(),
             map: FastHashMap::default(),
         }
+    }
+
+    pub fn finish(self) -> Vec<TransformData> {
+        self.transforms
     }
 
     pub fn allocate(&mut self, count: usize) {
@@ -543,24 +547,6 @@ impl TransformPalette {
                     )
                 })
         }
-    }
-
-    pub fn get_world_transform(
-        &self,
-        index: SpatialNodeIndex,
-    ) -> LayoutToWorldTransform {
-        self.transforms[index.0 as usize]
-            .transform
-            .with_destination::<WorldPixel>()
-    }
-
-    pub fn get_world_inv_transform(
-        &self,
-        index: SpatialNodeIndex,
-    ) -> WorldToLayoutTransform {
-        self.transforms[index.0 as usize]
-            .inv_transform
-            .with_source::<WorldPixel>()
     }
 
     // Get a transform palette id for the given spatial node.

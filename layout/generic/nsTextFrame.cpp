@@ -1905,7 +1905,10 @@ bool BuildTextRunsScanner::ContinueTextRunAcrossFrames(nsTextFrame* aFrame1,
   }
 
   const nsStyleText* textStyle2 = sc2->StyleText();
-  if (sc1 == sc2) return true;
+  if (textStyle1->mTextTransform != textStyle2->mTextTransform ||
+      textStyle1->EffectiveWordBreak() != textStyle2->EffectiveWordBreak()) {
+    return false;
+  }
 
   nsPresContext* pc = aFrame1->PresContext();
   MOZ_ASSERT(pc == aFrame2->PresContext());
@@ -1916,7 +1919,6 @@ bool BuildTextRunsScanner::ContinueTextRunAcrossFrames(nsTextFrame* aFrame1,
   nscoord letterSpacing2 = LetterSpacing(aFrame2);
   return fontStyle1->mFont == fontStyle2->mFont &&
          fontStyle1->mLanguage == fontStyle2->mLanguage &&
-         textStyle1->mTextTransform == textStyle2->mTextTransform &&
          nsLayoutUtils::GetTextRunFlagsForStyle(sc1, pc, fontStyle1, textStyle1,
                                                 letterSpacing1) ==
              nsLayoutUtils::GetTextRunFlagsForStyle(sc2, pc, fontStyle2,
@@ -2570,21 +2572,6 @@ void BuildTextRunsScanner::SetupBreakSinksForTextRun(gfxTextRun* aTextRun,
                                                      const void* aTextPtr) {
   using mozilla::intl::LineBreaker;
 
-  auto wordBreak = mLineContainer->StyleText()->EffectiveWordBreak();
-  switch (wordBreak) {
-    case StyleWordBreak::BreakAll:
-      mLineBreaker.SetWordBreak(LineBreaker::kWordBreak_BreakAll);
-      break;
-    case StyleWordBreak::KeepAll:
-      mLineBreaker.SetWordBreak(LineBreaker::kWordBreak_KeepAll);
-      break;
-    case StyleWordBreak::Normal:
-    default:
-      MOZ_ASSERT(wordBreak == StyleWordBreak::Normal);
-      mLineBreaker.SetWordBreak(LineBreaker::kWordBreak_Normal);
-      break;
-  }
-
   // textruns have uniform language
   const nsStyleFont* styleFont = mMappedFlows[0].mStartFrame->StyleFont();
   // We should only use a language for hyphenation if it was specified
@@ -2598,6 +2585,25 @@ void BuildTextRunsScanner::SetupBreakSinksForTextRun(gfxTextRun* aTextRun,
 
   for (uint32_t i = 0; i < mMappedFlows.Length(); ++i) {
     MappedFlow* mappedFlow = &mMappedFlows[i];
+    // The CSS word-break value may change within a word, so we reset it for
+    // each MappedFlow. The line-breaker will flush its text if the property
+    // actually changes.
+    auto wordBreak =
+      mappedFlow->mStartFrame->StyleText()->EffectiveWordBreak();
+    switch (wordBreak) {
+      case StyleWordBreak::BreakAll:
+        mLineBreaker.SetWordBreak(LineBreaker::kWordBreak_BreakAll);
+        break;
+      case StyleWordBreak::KeepAll:
+        mLineBreaker.SetWordBreak(LineBreaker::kWordBreak_KeepAll);
+        break;
+      case StyleWordBreak::Normal:
+      default:
+        MOZ_ASSERT(wordBreak == StyleWordBreak::Normal);
+        mLineBreaker.SetWordBreak(LineBreaker::kWordBreak_Normal);
+        break;
+    }
+
     uint32_t offset = iter.GetSkippedOffset();
     gfxSkipCharsIterator iterNext = iter;
     iterNext.AdvanceOriginal(mappedFlow->GetContentEnd() -
@@ -5855,7 +5861,7 @@ void nsTextFrame::PaintOneShadow(const PaintShadowParams& aParams,
 
     // Gecko already inflates the bounding rect of text shadows,
     // so tell WR not to inflate again.
-    wrShadow.should_inflate = false;
+    wrShadow.should_inflate = true;
 
     wrShadow.offset = {
         PresContext()->AppUnitsToFloatDevPixels(aShadowDetails->mXOffset),
