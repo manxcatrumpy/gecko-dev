@@ -2604,7 +2604,7 @@ static FeatureState& WebRenderHardwareQualificationStatus(
   if (Preferences::HasUserValue(WR_ROLLOUT_HW_QUALIFIED_OVERRIDE)) {
     if (!Preferences::GetBool(WR_ROLLOUT_HW_QUALIFIED_OVERRIDE)) {
       featureWebRenderQualified.Disable(
-          FeatureStatus::Blocked, "HW qualification pref override",
+          FeatureStatus::BlockedOverride, "HW qualification pref override",
           NS_LITERAL_CSTRING("FEATURE_FAILURE_WR_QUALIFICATION_OVERRIDE"));
     }
     return featureWebRenderQualified;
@@ -2615,7 +2615,7 @@ static FeatureState& WebRenderHardwareQualificationStatus(
   if (NS_SUCCEEDED(gfxInfo->GetFeatureStatus(nsIGfxInfo::FEATURE_WEBRENDER,
                                              aOutFailureId, &status))) {
     if (status != nsIGfxInfo::FEATURE_STATUS_OK) {
-      featureWebRenderQualified.Disable(FeatureStatus::Blocked,
+      featureWebRenderQualified.Disable(FeatureStatus::Blacklisted,
                                         "No qualified hardware", aOutFailureId);
     } else {
       nsAutoString adapterVendorID;
@@ -2627,7 +2627,7 @@ static FeatureState& WebRenderHardwareQualificationStatus(
       int32_t deviceID = adapterDeviceID.ToInteger(&valid, 16);
       if (valid != NS_OK) {
         featureWebRenderQualified.Disable(
-            FeatureStatus::Blocked, "Bad device id",
+            FeatureStatus::BlockedDeviceUnknown, "Bad device id",
             NS_LITERAL_CSTRING("FEATURE_FAILURE_BAD_DEVICE_ID"));
       } else {
 #ifdef NIGHTLY_BUILD
@@ -2648,7 +2648,7 @@ static FeatureState& WebRenderHardwareQualificationStatus(
 
         if (disableForBattery) {
           featureWebRenderQualified.Disable(
-              FeatureStatus::Blocked, "Has battery",
+              FeatureStatus::BlockedHasBattery, "Has battery",
               NS_LITERAL_CSTRING("FEATURE_FAILURE_WR_HAS_BATTERY"));
         } else if (adapterVendorID == u"0x10de") {
           if (deviceID < 0x6c0) {
@@ -2656,7 +2656,7 @@ static FeatureState& WebRenderHardwareQualificationStatus(
             // devices that don't support D3D 10.1 have higher deviceIDs. They
             // will be included, but blocked by ANGLE.
             featureWebRenderQualified.Disable(
-                FeatureStatus::Blocked, "Device too old",
+                FeatureStatus::BlockedDeviceTooOld, "Device too old",
                 NS_LITERAL_CSTRING("FEATURE_FAILURE_DEVICE_TOO_OLD"));
           }
 #ifdef EARLY_BETA_OR_EARLIER
@@ -2674,7 +2674,7 @@ static FeatureState& WebRenderHardwareQualificationStatus(
             // we have a desktop CAYMAN, SI, CIK, VI, or GFX9 device
           } else {
             featureWebRenderQualified.Disable(
-                FeatureStatus::Blocked, "Device too old",
+                FeatureStatus::BlockedDeviceTooOld, "Device too old",
                 NS_LITERAL_CSTRING("FEATURE_FAILURE_DEVICE_TOO_OLD"));
           }
 #endif
@@ -2751,7 +2751,7 @@ static FeatureState& WebRenderHardwareQualificationStatus(
           }
           if (!supported) {
             featureWebRenderQualified.Disable(
-                FeatureStatus::Blocked, "Device too old",
+                FeatureStatus::BlockedDeviceTooOld, "Device too old",
                 NS_LITERAL_CSTRING("FEATURE_FAILURE_DEVICE_TOO_OLD"));
           }
 #  ifdef MOZ_WIDGET_GTK
@@ -2761,11 +2761,11 @@ static FeatureState& WebRenderHardwareQualificationStatus(
             const int32_t kMaxPixelsLinux = 3440 * 1440;  // UWQHD
             if (screenPixels > kMaxPixelsLinux) {
               featureWebRenderQualified.Disable(
-                  FeatureStatus::Blocked, "Screen size too large",
+                  FeatureStatus::BlockedScreenTooLarge, "Screen size too large",
                   NS_LITERAL_CSTRING("FEATURE_FAILURE_SCREEN_SIZE_TOO_LARGE"));
             } else if (screenPixels <= 0) {
               featureWebRenderQualified.Disable(
-                  FeatureStatus::Blocked, "Screen size unknown",
+                  FeatureStatus::BlockedScreenUnknown, "Screen size unknown",
                   NS_LITERAL_CSTRING("FEATURE_FAILURE_SCREEN_SIZE_UNKNOWN"));
             }
           }
@@ -2773,14 +2773,14 @@ static FeatureState& WebRenderHardwareQualificationStatus(
 #endif    // NIGHTLY_BUILD
         } else {
           featureWebRenderQualified.Disable(
-              FeatureStatus::Blocked, "Unsupported vendor",
+              FeatureStatus::BlockedVendorUnsupported, "Unsupported vendor",
               NS_LITERAL_CSTRING("FEATURE_FAILURE_UNSUPPORTED_VENDOR"));
         }
       }
     }
   } else {
     featureWebRenderQualified.Disable(
-        FeatureStatus::Blocked, "gfxInfo is broken",
+        FeatureStatus::BlockedNoGfxInfo, "gfxInfo is broken",
         NS_LITERAL_CSTRING("FEATURE_FAILURE_WR_NO_GFX_INFO"));
   }
   return featureWebRenderQualified;
@@ -2851,7 +2851,8 @@ void gfxPlatform::InitWebRenderConfig() {
   // HW_COMPOSITING being disabled implies interfacing with the GPU might break
   if (!gfxConfig::IsEnabled(Feature::HW_COMPOSITING)) {
     featureWebRender.ForceDisable(
-        FeatureStatus::Unavailable, "Hardware compositing is disabled",
+        FeatureStatus::UnavailableNoHwCompositing,
+        "Hardware compositing is disabled",
         NS_LITERAL_CSTRING("FEATURE_FAILURE_WEBRENDER_NEED_HWCOMP"));
   }
 
@@ -2859,20 +2860,20 @@ void gfxPlatform::InitWebRenderConfig() {
 #ifdef XP_WIN
   if (!gfxConfig::IsEnabled(Feature::GPU_PROCESS)) {
     featureWebRender.ForceDisable(
-        FeatureStatus::Unavailable, "GPU Process is disabled",
+        FeatureStatus::UnavailableNoGpuProcess, "GPU Process is disabled",
         NS_LITERAL_CSTRING("FEATURE_FAILURE_GPU_PROCESS_DISABLED"));
   }
 #endif
 
   if (InSafeMode()) {
     featureWebRender.ForceDisable(
-        FeatureStatus::Unavailable, "Safe-mode is enabled",
+        FeatureStatus::UnavailableInSafeMode, "Safe-mode is enabled",
         NS_LITERAL_CSTRING("FEATURE_FAILURE_SAFE_MODE"));
   }
 
 #ifndef MOZ_BUILD_WEBRENDER
   featureWebRender.ForceDisable(
-      FeatureStatus::Unavailable, "Build doesn't include WebRender",
+      FeatureStatus::UnavailableNotBuilt, "Build doesn't include WebRender",
       NS_LITERAL_CSTRING("FEATURE_FAILURE_NO_WEBRENDER"));
 #endif
 
@@ -2880,7 +2881,7 @@ void gfxPlatform::InitWebRenderConfig() {
   if (Preferences::GetBool("gfx.webrender.force-angle", false)) {
     if (!gfxConfig::IsEnabled(Feature::D3D11_HW_ANGLE)) {
       featureWebRender.ForceDisable(
-          FeatureStatus::Unavailable, "ANGLE is disabled",
+          FeatureStatus::UnavailableNoAngle, "ANGLE is disabled",
           NS_LITERAL_CSTRING("FEATURE_FAILURE_ANGLE_DISABLED"));
     } else {
       gfxVars::SetUseWebRenderANGLE(gfxConfig::IsEnabled(Feature::WEBRENDER));
@@ -3235,6 +3236,10 @@ class FrameStatsComparator {
 };
 
 void gfxPlatform::NotifyFrameStats(nsTArray<FrameStats>&& aFrameStats) {
+  if (!gfxPrefs::LoggingSlowFramesEnabled()) {
+    return;
+  }
+
   FrameStatsComparator comp;
   for (FrameStats& f : aFrameStats) {
     mFrameStats.InsertElementSorted(f, comp);

@@ -508,6 +508,7 @@ class gfxPrefs final {
   // The maximums here are quite conservative, we can tighten them if problems show up.
   DECL_GFX_PREF(Once, "gfx.logging.texture-usage.enabled",     GfxLoggingTextureUsageEnabled, bool, false);
   DECL_GFX_PREF(Once, "gfx.logging.peak-texture-usage.enabled",GfxLoggingPeakTextureUsageEnabled, bool, false);
+  DECL_GFX_PREF(Once, "gfx.logging.slow-frames.enabled",       LoggingSlowFramesEnabled, bool, false);
   // Use gfxPlatform::MaxAllocSize instead of the pref directly
   DECL_GFX_PREF(Once, "gfx.max-alloc-size",                    MaxAllocSizeDoNotUseDirectly, int32_t, (int32_t)500000000);
   // Use gfxPlatform::MaxTextureSize instead of the pref directly
@@ -743,7 +744,8 @@ class gfxPrefs final {
   DECL_GFX_PREF(Live, "media.wmf.skip-blacklist", PDMWMFSkipBlacklist, bool, false);
   DECL_GFX_PREF(Live, "media.wmf.deblacklisting-for-telemetry-in-gpu-process", PDMWMFDeblacklistingForTelemetryInGPUProcess, bool, false);
   DECL_GFX_PREF(Live, "media.wmf.amd.highres.enabled", PDMWMFAMDHighResEnabled, bool, true);
-  DECL_GFX_PREF(Live, "media.wmf.allow-unsupported-resolutions",  PDMWMFAllowUnsupportedResolutions, bool, false);
+  DECL_GFX_PREF(Live, "media.wmf.allow-unsupported-resolutions", PDMWMFAllowUnsupportedResolutions, bool, false);
+  DECL_GFX_PREF(Once, "media.wmf.vp9.enabled", MediaWmfVp9Enabled, bool, true);
 #endif
 
   // These affect how line scrolls from wheel events will be accelerated.
