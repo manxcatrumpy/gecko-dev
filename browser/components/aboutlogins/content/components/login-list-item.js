@@ -6,7 +6,6 @@ class LoginListItem extends HTMLElement {
   constructor(login) {
     super();
     this._login = login;
-    this._selected = false;
   }
 
   connectedCallback() {
@@ -21,25 +20,16 @@ class LoginListItem extends HTMLElement {
     this.render();
 
     this.addEventListener("click", this);
-    window.addEventListener("AboutLoginsLoginSelected", this);
   }
 
   render() {
-    this.classList.toggle("selected", this._selected);
     this.setAttribute("guid", this._login.guid);
-    this.shadowRoot.querySelector(".login-list-item-hostname").textContent = this._login.hostname;
-    this.shadowRoot.querySelector(".login-list-item-username").textContent = this._login.username;
+    this.shadowRoot.querySelector(".hostname").textContent = this._login.hostname;
+    this.shadowRoot.querySelector(".username").textContent = this._login.username;
   }
 
   handleEvent(event) {
     switch (event.type) {
-      case "AboutLoginsLoginSelected": {
-        if (this._selected != (event.detail.guid == this._login.guid)) {
-          this._selected = event.detail.guid == this._login.guid;
-          this.render();
-        }
-        break;
-      }
       case "click": {
         this.dispatchEvent(new CustomEvent("AboutLoginsLoginSelected", {
           bubbles: true,

@@ -18,8 +18,14 @@ class LoginItem extends HTMLElement {
     this.attachShadow({mode: "open"})
         .appendChild(loginItemTemplate.content.cloneNode(true));
 
-    let deleteButton = this.shadowRoot.querySelector(".delete-button");
-    deleteButton.addEventListener("click", this);
+    for (let selector of [
+      ".delete-button",
+      ".save-changes-button",
+      ".cancel-button",
+    ]) {
+      let button = this.shadowRoot.querySelector(selector);
+      button.addEventListener("click", this);
+    }
 
     window.addEventListener("AboutLoginsLoginSelected", this);
 
@@ -28,11 +34,15 @@ class LoginItem extends HTMLElement {
 
   static get observedAttributes() {
     return [
-      "login-item-delete",
-      "login-item-hostname",
-      "login-item-password",
-      "login-item-time-created",
-      "login-item-username",
+      "cancel-button",
+      "delete-button",
+      "hostname-label",
+      "password-label",
+      "save-changes-button",
+      "time-created",
+      "time-changed",
+      "time-used",
+      "username-label",
     ];
   }
 
@@ -43,30 +53,24 @@ class LoginItem extends HTMLElement {
       return;
     }
 
-    switch (attr) {
-      case "login-item-delete":
-        this.shadowRoot.querySelector(".delete-button").textContent = newValue;
-        break;
-      case "login-item-hostname":
-        this.shadowRoot.querySelector(".hostname-label").textContent = newValue;
-        break;
-      case "login-item-password":
-        this.shadowRoot.querySelector(".password-label").textContent = newValue;
-        break;
-      case "login-item-time-created":
-        this.shadowRoot.querySelector(".time-created-label").textContent = newValue;
-        break;
-      case "login-item-username":
-        this.shadowRoot.querySelector(".username-label").textContent = newValue;
-        break;
-    }
+    // Strings that are reflected to their shadowed element are assigned
+    // to an attribute name that matches a className on the element.
+    let shadowedElement = this.shadowRoot.querySelector("." + attr);
+    shadowedElement.textContent = newValue;
   }
 
   render() {
-    this.shadowRoot.querySelector("input[name='hostname']").value = this._login.hostname || "";
+    let l10nArgs = {
+      timeCreated: this._login.timeCreated || "",
+      timeChanged: this._login.timePasswordChanged || "",
+      timeUsed: this._login.timeLastUsed || "",
+    };
+    document.l10n.setAttributes(this, "login-item", l10nArgs);
+    let hostnameNoScheme = this._login.hostname && new URL(this._login.hostname).hostname;
+    this.shadowRoot.querySelector(".header").textContent = hostnameNoScheme || "";
+    this.shadowRoot.querySelector(".hostname").textContent = this._login.hostname || "";
     this.shadowRoot.querySelector("input[name='username']").value = this._login.username || "";
     this.shadowRoot.querySelector("input[name='password']").value = this._login.password || "";
-    this.shadowRoot.querySelector(".time-created").textContent = this._login.timeCreated || "";
   }
 
   handleEvent(event) {
@@ -81,6 +85,28 @@ class LoginItem extends HTMLElement {
             bubbles: true,
             detail: this._login,
           }));
+          return;
+        }
+        if (event.target.classList.contains("save-changes-button")) {
+          let loginUpdates = {
+            guid: this._login.guid,
+          };
+          let formUsername = this.shadowRoot.querySelector("input[name='username']").value.trim();
+          if (formUsername != this._login.username) {
+            loginUpdates.username = formUsername;
+          }
+          let formPassword = this.shadowRoot.querySelector("input[name='password']").value.trim();
+          if (formPassword != this._login.password) {
+            loginUpdates.password = formPassword;
+          }
+          document.dispatchEvent(new CustomEvent("AboutLoginsUpdateLogin", {
+            bubbles: true,
+            detail: loginUpdates,
+          }));
+          return;
+        }
+        if (event.target.classList.contains("cancel-button")) {
+          this.render();
         }
         break;
       }
@@ -90,27 +116,6 @@ class LoginItem extends HTMLElement {
   setLogin(login) {
     this._login = login;
     this.render();
-  }
-
-  loginAdded(login) {
-    if (!this._login.guid) {
-      let tempLogin = {
-        username: this.shadowRoot.querySelector("input[name='username']").value,
-        formSubmitURL: "", // Use the wildcard since the user doesn't supply it.
-        hostname: this.shadowRoot.querySelector("input[name='hostname']").value,
-        password: this.shadowRoot.querySelector("input[name='password']").value,
-      };
-      // Need to use LoginHelper.doLoginsMatch() to see if the login
-      // that was added is the login that was being edited, so we
-      // can update time-created, etc.
-      if (window.AboutLoginsUtils.doLoginsMatch(tempLogin, login)) {
-        this._login = login;
-        this.render();
-      }
-    } else if (login.guid == this._login.guid) {
-      this._login = login;
-      this.render();
-    }
   }
 
   loginModified(login) {
