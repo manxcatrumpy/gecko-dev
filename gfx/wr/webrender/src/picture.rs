@@ -2510,7 +2510,6 @@ impl PicturePrimitive {
                             unclipped.size,
                             pic_index,
                             device_rect.origin,
-                            Vec::new(),
                             uv_rect_kind,
                             raster_spatial_node_index,
                             device_pixel_scale,
@@ -2529,7 +2528,7 @@ impl PicturePrimitive {
 
                         (blur_render_task_id, picture_task_id)
                     }
-                    PictureCompositeMode::Filter(Filter::DropShadowStack(ref shadows)) => {
+                    PictureCompositeMode::Filter(Filter::DropShadows(ref shadows)) => {
                         let mut max_std_deviation = 0.0;
                         for shadow in shadows {
                             // TODO(nical) presumably we should compute the clipped rect for each shadow
@@ -2560,7 +2559,6 @@ impl PicturePrimitive {
                             unclipped.size,
                             pic_index,
                             device_rect.origin,
-                            Vec::new(),
                             uv_rect_kind,
                             raster_spatial_node_index,
                             device_pixel_scale,
@@ -2605,7 +2603,6 @@ impl PicturePrimitive {
                             unclipped.size,
                             pic_index,
                             clipped.origin,
-                            Vec::new(),
                             uv_rect_kind,
                             raster_spatial_node_index,
                             device_pixel_scale,
@@ -2640,7 +2637,6 @@ impl PicturePrimitive {
                             unclipped.size,
                             pic_index,
                             clipped.origin,
-                            Vec::new(),
                             uv_rect_kind,
                             raster_spatial_node_index,
                             device_pixel_scale,
@@ -2664,7 +2660,6 @@ impl PicturePrimitive {
                             unclipped.size,
                             pic_index,
                             clipped.origin,
-                            Vec::new(),
                             uv_rect_kind,
                             raster_spatial_node_index,
                             device_pixel_scale,
@@ -2696,7 +2691,6 @@ impl PicturePrimitive {
                             unclipped.size,
                             pic_index,
                             clipped.origin,
-                            Vec::new(),
                             uv_rect_kind,
                             raster_spatial_node_index,
                             device_pixel_scale,
@@ -3138,7 +3132,7 @@ impl PicturePrimitive {
                 // blur sample scale. Should we do this here as well?
                 let inflation_size = match raster_config.composite_mode {
                     PictureCompositeMode::Filter(Filter::Blur(_)) => surface.inflation_factor,
-                    PictureCompositeMode::Filter(Filter::DropShadowStack(ref shadows)) => {
+                    PictureCompositeMode::Filter(Filter::DropShadows(ref shadows)) => {
                         let mut max = 0.0;
                         for shadow in shadows {
                             max = f32::max(max, shadow.blur_radius * BLUR_SAMPLE_SCALE);
@@ -3173,7 +3167,7 @@ impl PicturePrimitive {
             // Drop shadows draw both a content and shadow rect, so need to expand the local
             // rect of any surfaces to be composited in parent surfaces correctly.
             match raster_config.composite_mode {
-                PictureCompositeMode::Filter(Filter::DropShadowStack(ref shadows)) => {
+                PictureCompositeMode::Filter(Filter::DropShadows(ref shadows)) => {
                     for shadow in shadows {
                         let content_rect = surface_rect;
                         let shadow_rect = surface_rect.translate(&shadow.offset);
@@ -3231,7 +3225,7 @@ impl PicturePrimitive {
         match raster_config.composite_mode {
             PictureCompositeMode::TileCache { .. } => {}
             PictureCompositeMode::Filter(Filter::Blur(..)) => {}
-            PictureCompositeMode::Filter(Filter::DropShadowStack(ref shadows)) => {
+            PictureCompositeMode::Filter(Filter::DropShadows(ref shadows)) => {
                 self.extra_gpu_data_handles.resize(shadows.len(), GpuCacheHandle::new());
                 for (shadow, extra_handle) in shadows.iter().zip(self.extra_gpu_data_handles.iter_mut()) {
                     if let Some(mut request) = frame_state.gpu_cache.request(extra_handle) {

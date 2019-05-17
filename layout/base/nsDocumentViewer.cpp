@@ -1731,6 +1731,16 @@ nsDocumentViewer::Destroy() {
         if (rootView) {
           nsView* rootViewParent = rootView->GetParent();
           if (rootViewParent) {
+            nsView* subdocview = rootViewParent->GetParent();
+            if (subdocview) {
+              nsIFrame* f = subdocview->GetFrame();
+              if (f) {
+                nsSubDocumentFrame* s = do_QueryFrame(f);
+                if (s) {
+                  s->ClearDisplayItems();
+                }
+              }
+            }
             nsViewManager* parentVM = rootViewParent->GetViewManager();
             if (parentVM) {
               parentVM->RemoveChild(rootView);
@@ -3541,7 +3551,7 @@ nsDocumentViewer::PrintPreview(nsIPrintSettings* aPrintSettings,
 #  if defined(NS_PRINTING) && defined(NS_PRINT_PREVIEW)
   MOZ_ASSERT(IsInitializedForPrintPreview(),
              "For print preview nsIWebBrowserPrint must be from "
-             "docshell.printPreview!");
+             "docshell.initOrReusePrintPreviewViewer!");
 
   NS_ENSURE_ARG_POINTER(aChildDOMWin);
   nsresult rv = NS_OK;
