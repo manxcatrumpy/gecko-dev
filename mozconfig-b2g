@@ -26,7 +26,7 @@ ac_add_options --disable-jemalloc
 ac_add_options --enable-debug
 
 # Optimize the build
-ac_add_options --enable-lto
+#ac_add_options --enable-lto
 ac_add_options --disable-profiling
 ac_add_options --enable-small-chunk-size
 ac_add_options --disable-webrender # for now...
