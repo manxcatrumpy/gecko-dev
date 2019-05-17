@@ -3,8 +3,8 @@
 set -e
 
 export MOZCONFIG=mozconfig-b2g
-#export GONK_PRODUCT_NAME=msm8909
-#export GONK_PATH=/home/vincent/project/bb
+export PLATFORM_VERSION=28
+export ANDROID_PLATFORM=android-${PLATFORM_VERSION}
 
 # Check that the GONK_PATH environment variable is set.
 if [ -z ${GONK_PATH+x} ];
@@ -66,7 +66,7 @@ export NDK_DIR=$HOME/.mozbuild/android-ndk-r17b/
 
 export PATH=$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin:$GONK_PATH/prebuilts/linux-x86_64/bin/:$PATH
 
-SYSROOT=$NDK_DIR/platforms/android-28/arch-arm/
+SYSROOT=$NDK_DIR/platforms/$ANDROID_PLATFORM/arch-arm/
 GONK_LIBS=$GONK_PATH/out/target/product/$GONK_PRODUCT_NAME/obj/lib/
 
 ARCH_DIR="arch-arm"
@@ -79,14 +79,14 @@ export CFLAGS="-DANDROID -DTARGET_OS_GONK \
 -Oz \
 -DJE_FORCE_SYNC_COMPARE_AND_SWAP_4=1 \
 $HWC_DEFINE \
--DANDROID_VERSION=28 \
+-DANDROID_VERSION=$PLATFORM_VERSION \
 -D__SOFTFP__ \
 -D_USING_LIBCXX \
 -Wno-nullability-completeness \
 -DGR_GL_USE_NEW_SHADER_SOURCE_SIGNATURE=1 \
 -isystem $GONK_PATH/bionic \
 -isystem $GONK_PATH/bionic/libc/$ARCH_DIR/include \
--isystem $NDK_DIR/platforms/android-28/arch-arm/usr/include \
+-isystem $NDK_DIR/platforms/$ANDROID_PLATFORM/arch-arm/usr/include \
 -isystem $GONK_PATH/bionic/libc/include/ \
 -isystem $GONK_PATH/bionic/libc/kernel/common \
 -isystem $GONK_PATH/bionic/libc/kernel/$ARCH_DIR \
@@ -117,7 +117,7 @@ export RUSTC_OPT_LEVEL=z
 GCC_LIB="-L$GONK_PATH/prebuilts/gcc/darwin-x86/arm/arm-linux-androideabi-4.9/lib/gcc/arm-linux-androideabi/4.9.x/"
 
 export ANDROID_NDK=$NDK_DIR
-export ANDROID_PLATFORM=android-28
+export ANDROID_PLATFORM=$ANDROID_PLATFORM
 
 export LDFLAGS="-L$GONK_PATH/out/target/product/$GONK_PRODUCT_NAME/obj/lib \
 -Wl,-rpath-link=$GONK_PATH/out/target/product/$GONK_PRODUCT_NAME/obj/lib \
