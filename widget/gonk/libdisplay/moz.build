@@ -65,6 +65,13 @@ AllowCompilerWarnings()
 
 DisableStlWrapping()
 
+if CONFIG['ANDROID_VERSION'] >= '28':
+    LOCAL_INCLUDES += [
+    '%' + '%s/%s' % (CONFIG['GONK_PATH'], d) for d in [
+        'gonk-misc/libcarthage',
+        ]
+    ]
+
 if CONFIG['ANDROID_VERSION'] > '15':
     LOCAL_INCLUDES += [
         '%' + '%s/%s' % (CONFIG['GONK_PATH'], d) for d in [
