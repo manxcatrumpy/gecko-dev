@@ -3262,7 +3262,9 @@ static void ClipItemsExceptCaret(
       continue;
     }
 
-    if (i->GetType() != DisplayItemType::TYPE_CARET) {
+    const DisplayItemType type = i->GetType();
+    if (type != DisplayItemType::TYPE_CARET &&
+        type != DisplayItemType::TYPE_CONTAINER) {
       const DisplayItemClipChain* clip = i->GetClipChain();
       const DisplayItemClipChain* intersection = nullptr;
       if (aCache.Get(clip, &intersection)) {
@@ -6920,12 +6922,7 @@ layers::ScrollSnapInfo ScrollFrameHelper::ComputeScrollSnapInfo(
 
   Maybe<nsRect> snapportOnDestination;
   if (aDestination) {
-    if (IsPhysicalLTR()) {
-      snapport.MoveTo(aDestination.value());
-    } else {
-      snapport.MoveTo(
-          nsPoint(aDestination->x - snapport.Size().width, aDestination->y));
-    }
+    snapport.MoveTo(aDestination.value());
     snapport.Deflate(scrollPadding);
     snapportOnDestination.emplace(snapport);
   } else {
