@@ -853,6 +853,11 @@ pref("gfx.font_rendering.wordcache.maxentries", 10000);
 
 pref("gfx.font_rendering.graphite.enabled", true);
 
+#ifdef XP_MACOSX
+// Set to true to revert from HarfBuzz AAT shaping to the old Core Text backend
+pref("gfx.font_rendering.coretext.enabled", false);
+#endif
+
 #ifdef XP_WIN
 pref("gfx.font_rendering.directwrite.use_gdi_table_loading", true);
 #endif
@@ -4719,6 +4724,8 @@ pref("signon.autofillForms.autocompleteOff", true);
 pref("signon.autofillForms.http",           false);
 pref("signon.autologin.proxy",              false);
 pref("signon.formlessCapture.enabled",      true);
+pref("signon.generation.available",         false);
+pref("signon.generation.enabled",           false);
 pref("signon.privateBrowsingCapture.enabled", false);
 pref("signon.storeWhenAutocompleteOff",     true);
 pref("signon.debug",                        false);
