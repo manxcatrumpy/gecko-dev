@@ -1565,15 +1565,7 @@ void gfxPlatform::ComputeTileSize() {
     }
 
 #ifdef MOZ_WIDGET_GONK
-    //android::sp<android::GraphicBuffer> alloc =
-    //      new android::GraphicBuffer(w, h, android::PIXEL_FORMAT_RGBA_8888,
-    //                                 android::GraphicBuffer::USAGE_SW_READ_OFTEN |
-    //                                 android::GraphicBuffer::USAGE_SW_WRITE_OFTEN |
-    //                                 android::GraphicBuffer::USAGE_HW_TEXTURE);
-    //
-    //if (alloc.get()) {
-    //  w = alloc->getStride(); // We want the tiles to be gralloc stride aligned.
-    //}
+#if ANDROID_VERSION >= 27
     typedef int (*fnAHardwareBuffer_allocate)(const AHardwareBuffer_Desc* desc, AHardwareBuffer** outBuffer);
     typedef void (*fnAHardwareBuffer_describe)(const AHardwareBuffer* buffer,
                                                 AHardwareBuffer_Desc* outDesc);
@@ -1609,7 +1601,18 @@ void gfxPlatform::ComputeTileSize() {
         w = stride;
       }
     }
+#else
+    android::sp<android::GraphicBuffer> alloc =
+          new android::GraphicBuffer(w, h, android::PIXEL_FORMAT_RGBA_8888,
+                                     android::GraphicBuffer::USAGE_SW_READ_OFTEN |
+                                     android::GraphicBuffer::USAGE_SW_WRITE_OFTEN |
+                                     android::GraphicBuffer::USAGE_HW_TEXTURE);
 
+    if (alloc.get()) {
+      w = alloc->getStride(); // We want the tiles to be gralloc stride aligned.
+    }
+
+#endif
 #endif
   }
 

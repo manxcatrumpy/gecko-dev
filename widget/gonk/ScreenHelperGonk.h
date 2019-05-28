@@ -21,7 +21,11 @@
 #include "cutils/properties.h"
 #include "hardware/hwcomposer.h"
 
-#include "libdisplay/GonkKDisplay.h"
+#if ANDROID_VERSION >= 27
+#include "libdisplay/GonkCarthageDisplay.h"
+#else
+#include "libdisplay/GonkDisplay.h"
+#endif
 #include "mozilla/Atomics.h"
 #include "mozilla/Hal.h"
 #include "mozilla/Mutex.h"
@@ -59,15 +63,23 @@ enum class NotifyDisplayChangedEvent : int8_t {
 class nsScreenGonk : public nsBaseScreen
 {
     typedef mozilla::hal::ScreenConfiguration ScreenConfiguration;
-    typedef android::GonkDisplay GonkDisplay;
+#if ANDROID_VERSION >= 27
+        typedef android::GonkDisplay GonkDisplay;
+#else
+        typedef mozilla::GonkDisplay GonkDisplay;
+#endif
     typedef mozilla::LayoutDeviceIntRect LayoutDeviceIntRect;
     typedef mozilla::layers::CompositorBridgeParent CompositorBridgeParent;
     typedef mozilla::gfx::DrawTarget DrawTarget;
 
 public:
     nsScreenGonk(uint32_t aId,
-                 android::GonkDisplay::DisplayType aDisplayType,
+                 DisplayType aDisplayType,
+#if ANDROID_VERSION >= 27
+                 const android::GonkDisplay::NativeData& aNativeData,
+#else
                  const GonkDisplay::NativeData& aNativeData,
+#endif
                  NotifyDisplayChangedEvent aEventVisibility);
 
     ~nsScreenGonk();
@@ -103,7 +115,7 @@ public:
 #endif
     bool IsComposer2DSupported();
     bool IsVsyncSupported();
-    android::GonkDisplay::DisplayType GetDisplayType();
+    DisplayType GetDisplayType();
 
     void RegisterWindow(nsWindow* aWindow);
     void UnregisterWindow(nsWindow* aWindow);
@@ -160,7 +172,8 @@ protected:
     mozilla::Atomic<CompositorBridgeParent*> mCompositorBridgeParent;
 
     // Accessed and updated only on compositor thread
-    android::GonkDisplay::DisplayType mDisplayType;
+    DisplayType mDisplayType;
+
     hwc_display_t mEGLDisplay;
     hwc_surface_t mEGLSurface;
     RefPtr<mozilla::gl::GLContext> mGLContext;
@@ -200,14 +213,16 @@ class ScreenHelperGonk final : public ScreenManager::Helper {
   // Generic
   already_AddRefed<Screen> MakePrimaryScreen();
   void Refresh();
-  void AddScreen(uint32_t aScreenId, android::GonkDisplay::DisplayType aDisplayType,
-                 LayoutDeviceIntRect aRect = LayoutDeviceIntRect(),
-                 float aDensity = 1.0f);
+  void AddScreen(uint32_t aScreenId,
+       DisplayType aDisplayType,
+       LayoutDeviceIntRect aRect = LayoutDeviceIntRect(),
+       float aDensity = 1.0f);
   void RemoveScreen(uint32_t aId);
   already_AddRefed<Screen> ScreenForId(uint32_t aScreenId);
 
   // nsScreenManagerGonk
-  static uint32_t GetIdFromType(android::GonkDisplay::DisplayType aDisplayType);
+  static uint32_t GetIdFromType(DisplayType aDisplayType);
+
   static already_AddRefed<nsScreenGonk> GetPrimaryScreen();
 
   void DisplayEnabled(bool aEnabled);

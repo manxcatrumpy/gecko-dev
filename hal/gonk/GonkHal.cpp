@@ -39,7 +39,12 @@
 #include "hardware_legacy/uevent.h"
 //#include "hardware_legacy/vibrator.h"
 //#include "hardware_legacy/power.h"
-#include "libdisplay/GonkKDisplay.h"
+#if ANDROID_VERSION >= 27
+#include "libdisplay/GonkCarthageDisplay.h"
+#else
+#include "libdisplay/GonkDisplay.h"
+#endif
+
 #include "utils/threads.h"
 
 #include "base/message_loop.h"
@@ -116,6 +121,7 @@ using namespace mozilla;
 using namespace mozilla::hal;
 using namespace mozilla::dom;
 
+#if ANDROID_VERSION >= 27
 extern android::GonkDisplay * getGonkDisplay();
 
 typedef android::GonkDisplay* (*fnGetGonkDisplay)();
@@ -134,6 +140,7 @@ android::GonkDisplay * getGonkDisplay() {
   }
   return display;
 }
+#endif
 
 namespace mozilla {
 namespace hal_impl {
@@ -763,7 +770,11 @@ GetScreenEnabled()
 void
 SetScreenEnabled(bool aEnabled)
 {
+#if ANDROID_VERSION >= 27
   getGonkDisplay()->SetEnabled(aEnabled);
+#else
+  GetGonkDisplay()->SetEnabled(aEnabled);
+#endif
   sScreenEnabled = aEnabled;
 }
 
