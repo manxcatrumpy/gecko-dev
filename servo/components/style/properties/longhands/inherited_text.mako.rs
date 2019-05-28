@@ -56,7 +56,7 @@ ${helpers.predefined_type(
     "computed::LengthPercentage::zero()",
     animation_value_type="ComputedValue",
     spec="https://drafts.csswg.org/css-text/#propdef-text-indent",
-    allow_quirks=True,
+    allow_quirks="Yes",
     servo_restyle_damage = "reflow",
 )}
 
@@ -262,6 +262,16 @@ ${helpers.predefined_type(
     products="gecko",
     animation_value_type="LengthOrNumber",
     spec="https://drafts.csswg.org/css-text-3/#tab-size-property",
+)}
+
+${helpers.predefined_type(
+    "line-break",
+    "LineBreak",
+    "computed::LineBreak::Auto",
+    products="gecko",
+    animation_value_type="discrete",
+    spec="https://drafts.csswg.org/css-text-3/#line-break-property",
+    needs_context=False,
 )}
 
 // CSS Compatibility

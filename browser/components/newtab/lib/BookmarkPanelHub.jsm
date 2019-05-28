@@ -19,7 +19,7 @@ class _BookmarkPanelHub {
     this._handleMessageRequest = null;
     this._addImpression = null;
     this._dispatch = null;
-    this._initalized = false;
+    this._initialized = false;
     this._response = null;
     this._l10n = null;
 
@@ -38,16 +38,13 @@ class _BookmarkPanelHub {
     this._handleMessageRequest = handleMessageRequest;
     this._addImpression = addImpression;
     this._dispatch = dispatch;
-    this._l10n = new DOMLocalization([
-      "browser/branding/sync-brand.ftl",
-      "browser/newtab/asrouter.ftl",
-    ]);
-    this._initalized = true;
+    this._l10n = new DOMLocalization();
+    this._initialized = true;
   }
 
   uninit() {
     this._l10n = null;
-    this._initalized = false;
+    this._initialized = false;
     this._handleMessageRequest = null;
     this._addImpression = null;
     this._dispatch = null;
@@ -64,6 +61,10 @@ class _BookmarkPanelHub {
    * @returns {obj|null} response object or null if no messages matched
    */
   async messageRequest(target, win) {
+    if (!this._initialized) {
+      return false;
+    }
+
     if (this._response && this._response.win === win && this._response.url === target.url && this._response.content) {
       this.showMessage(this._response.content, target, win);
       return true;
@@ -88,6 +89,9 @@ class _BookmarkPanelHub {
     };
 
     if (response && response.content) {
+      // Only insert localization files if we need to show a message
+      win.MozXULElement.insertFTLIfNeeded("browser/newtab/asrouter.ftl");
+      win.MozXULElement.insertFTLIfNeeded("browser/branding/sync-brand.ftl");
       this.showMessage(response.content, target, win);
       this.sendImpression();
       this.sendUserEventTelemetry("IMPRESSION", win);
@@ -123,9 +127,10 @@ class _BookmarkPanelHub {
       });
       recommendation.style.color = message.color;
       recommendation.style.background = `-moz-linear-gradient(-45deg, ${message.background_color_1} 0%, ${message.background_color_2} 70%)`;
-      const close = createElement("a");
+      const close = createElement("button");
       close.setAttribute("id", "cfrClose");
       close.setAttribute("aria-label", "close");
+      close.style.color = message.color;
       this._l10n.setAttributes(close, message.close_button.tooltiptext);
       close.addEventListener("click", e => {
         this.sendUserEventTelemetry("DISMISS", win);
@@ -145,7 +150,6 @@ class _BookmarkPanelHub {
       recommendation.appendChild(title);
       recommendation.appendChild(content);
       recommendation.appendChild(cta);
-      this._l10n.translateElements([...recommendation.children]);
       target.container.appendChild(recommendation);
     }
 

@@ -1409,7 +1409,7 @@ exports.CSS_PROPERTIES = {
   "-moz-user-select": {
     "isInherited": false,
     "subproperties": [
-      "-moz-user-select"
+      "user-select"
     ],
     "supports": [],
     "values": [
@@ -2886,7 +2886,7 @@ exports.CSS_PROPERTIES = {
   "-webkit-user-select": {
     "isInherited": false,
     "subproperties": [
-      "-moz-user-select"
+      "user-select"
     ],
     "supports": [],
     "values": [
@@ -3093,6 +3093,7 @@ exports.CSS_PROPERTIES = {
       "scale",
       "translate",
       "offset-path",
+      "offset-distance",
       "scroll-behavior",
       "scroll-snap-align",
       "scroll-snap-type",
@@ -3183,6 +3184,7 @@ exports.CSS_PROPERTIES = {
       "text-emphasis-position",
       "text-emphasis-color",
       "-moz-tab-size",
+      "line-break",
       "-webkit-text-fill-color",
       "-webkit-text-stroke-color",
       "-webkit-text-stroke-width",
@@ -3294,7 +3296,7 @@ exports.CSS_PROPERTIES = {
       "initial-letter",
       "ime-mode",
       "scrollbar-width",
-      "-moz-user-select",
+      "user-select",
       "-moz-window-dragging",
       "-moz-force-broken-image-icon",
       "dominant-baseline",
@@ -3315,6 +3317,13 @@ exports.CSS_PROPERTIES = {
       "mask-size",
       "mask-composite",
       "mask-image",
+      "x",
+      "y",
+      "cx",
+      "cy",
+      "rx",
+      "ry",
+      "r",
       "-moz-box-align",
       "-moz-box-direction",
       "-moz-box-flex",
@@ -5832,6 +5841,32 @@ exports.CSS_PROPERTIES = {
       "zoom-out"
     ]
   },
+  "cx": {
+    "isInherited": false,
+    "subproperties": [
+      "cx"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "revert",
+      "unset"
+    ]
+  },
+  "cy": {
+    "isInherited": false,
+    "subproperties": [
+      "cy"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "revert",
+      "unset"
+    ]
+  },
   "direction": {
     "isInherited": true,
     "subproperties": [
@@ -7323,6 +7358,24 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "line-break": {
+    "isInherited": true,
+    "subproperties": [
+      "line-break"
+    ],
+    "supports": [],
+    "values": [
+      "anywhere",
+      "auto",
+      "inherit",
+      "initial",
+      "loose",
+      "normal",
+      "revert",
+      "strict",
+      "unset"
+    ]
+  },
   "line-height": {
     "isInherited": true,
     "subproperties": [
@@ -8232,6 +8285,19 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "offset-distance": {
+    "isInherited": false,
+    "subproperties": [
+      "offset-distance"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "revert",
+      "unset"
+    ]
+  },
   "offset-path": {
     "isInherited": false,
     "subproperties": [
@@ -8915,6 +8981,19 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "r": {
+    "isInherited": false,
+    "subproperties": [
+      "r"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "revert",
+      "unset"
+    ]
+  },
   "resize": {
     "isInherited": false,
     "subproperties": [
@@ -8991,6 +9070,34 @@ exports.CSS_PROPERTIES = {
       "over",
       "revert",
       "under",
+      "unset"
+    ]
+  },
+  "rx": {
+    "isInherited": false,
+    "subproperties": [
+      "rx"
+    ],
+    "supports": [],
+    "values": [
+      "auto",
+      "inherit",
+      "initial",
+      "revert",
+      "unset"
+    ]
+  },
+  "ry": {
+    "isInherited": false,
+    "subproperties": [
+      "ry"
+    ],
+    "supports": [],
+    "values": [
+      "auto",
+      "inherit",
+      "initial",
+      "revert",
       "unset"
     ]
   },
@@ -10267,6 +10374,24 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "user-select": {
+    "isInherited": false,
+    "subproperties": [
+      "user-select"
+    ],
+    "supports": [],
+    "values": [
+      "-moz-none",
+      "all",
+      "auto",
+      "inherit",
+      "initial",
+      "none",
+      "revert",
+      "text",
+      "unset"
+    ]
+  },
   "vector-effect": {
     "isInherited": false,
     "subproperties": [
@@ -10444,6 +10569,32 @@ exports.CSS_PROPERTIES = {
       "vertical-rl"
     ]
   },
+  "x": {
+    "isInherited": false,
+    "subproperties": [
+      "x"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "revert",
+      "unset"
+    ]
+  },
+  "y": {
+    "isInherited": false,
+    "subproperties": [
+      "y"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "revert",
+      "unset"
+    ]
+  },
   "z-index": {
     "isInherited": false,
     "subproperties": [
@@ -10597,36 +10748,8 @@ exports.PREFERENCES = [
     "layout.css.moz-binding.content.enabled"
   ],
   [
-    "scroll-padding-block-end",
-    "layout.css.scroll-snap-v1.enabled"
-  ],
-  [
-    "scroll-padding-block-start",
-    "layout.css.scroll-snap-v1.enabled"
-  ],
-  [
-    "scroll-padding-bottom",
-    "layout.css.scroll-snap-v1.enabled"
-  ],
-  [
-    "scroll-padding-inline-end",
-    "layout.css.scroll-snap-v1.enabled"
-  ],
-  [
-    "scroll-padding-inline-start",
-    "layout.css.scroll-snap-v1.enabled"
-  ],
-  [
-    "scroll-padding-left",
-    "layout.css.scroll-snap-v1.enabled"
-  ],
-  [
-    "scroll-padding-right",
-    "layout.css.scroll-snap-v1.enabled"
-  ],
-  [
-    "scroll-padding-top",
-    "layout.css.scroll-snap-v1.enabled"
+    "offset-distance",
+    "layout.css.motion-path.enabled"
   ],
   [
     "scroll-margin-block-end",
@@ -10658,6 +10781,38 @@ exports.PREFERENCES = [
   ],
   [
     "scroll-margin-top",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-block-end",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-block-start",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-bottom",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-inline-end",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-inline-start",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-left",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-right",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-top",
     "layout.css.scroll-snap-v1.enabled"
   ],
   [

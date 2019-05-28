@@ -374,7 +374,7 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvVirtualCursorChangeEvent(
     return IPC_OK();
   }
 
-#if defined(ANDROID)
+#if defined(MOZ_WIDGET_ANDROID)
   ProxyVirtualCursorChangeEvent(
       target, oldPosition, aOldStartOffset, aOldEndOffset, newPosition,
       aNewStartOffset, aNewEndOffset, aReason, aBoundaryType, aFromUser);
@@ -408,7 +408,7 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvScrollingEvent(
     return IPC_OK();
   }
 
-#if defined(ANDROID)
+#if defined(MOZ_WIDGET_ANDROID)
   ProxyScrollingEvent(target, aType, aScrollX, aScrollY, aMaxScrollX,
                       aMaxScrollY);
 #else
@@ -442,7 +442,7 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvAnnouncementEvent(
     return IPC_OK();
   }
 
-#  if defined(ANDROID)
+#  if defined(MOZ_WIDGET_ANDROID)
   ProxyAnnouncementEvent(target, aAnnouncement, aPriority);
 #  endif
 
@@ -809,7 +809,7 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvBatch(
     const uint64_t& aBatchType, nsTArray<BatchData>&& aData) {
   // Only do something in Android. We can't ifdef the entire protocol out in
   // the ipdl because it doesn't allow preprocessing.
-#  if defined(ANDROID)
+#  if defined(MOZ_WIDGET_ANDROID)
   nsTArray<ProxyAccessible*> proxies(aData.Length());
   for (size_t i = 0; i < aData.Length(); i++) {
     DocAccessibleParent* doc = static_cast<DocAccessibleParent*>(

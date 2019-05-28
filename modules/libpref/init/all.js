@@ -853,6 +853,11 @@ pref("gfx.font_rendering.wordcache.maxentries", 10000);
 
 pref("gfx.font_rendering.graphite.enabled", true);
 
+#ifdef XP_MACOSX
+// Set to true to revert from HarfBuzz AAT shaping to the old Core Text backend
+pref("gfx.font_rendering.coretext.enabled", false);
+#endif
+
 #ifdef XP_WIN
 pref("gfx.font_rendering.directwrite.use_gdi_table_loading", true);
 #endif
@@ -1622,6 +1627,9 @@ pref("network.protocol-handler.external.hcp", false);
 pref("network.protocol-handler.external.vbscript", false);
 pref("network.protocol-handler.external.javascript", false);
 pref("network.protocol-handler.external.data", false);
+pref("network.protocol-handler.external.ie.http", false);
+pref("network.protocol-handler.external.iehistory", false);
+pref("network.protocol-handler.external.ierss", false);
 pref("network.protocol-handler.external.ms-help", false);
 pref("network.protocol-handler.external.res", false);
 pref("network.protocol-handler.external.shell", false);
@@ -2669,7 +2677,7 @@ pref("csp.overrule_about_uris_without_csp_whitelist", false);
 pref("csp.skip_about_page_has_csp_assert", false);
 // assertion flag will be set to false after fixing Bug 1473549
 pref("security.allow_eval_with_system_principal", false);
-pref("security.uris_using_eval_with_system_principal", "autocomplete.xml,redux.js,react-redux.js,content-task.js,preferencesbindings.js,lodash.js,jszip.js,sinon-7.2.7.js,ajv-4.1.1.js,jsol.js");
+pref("security.uris_using_eval_with_system_principal", "autocomplete.xml,redux.js,react-redux.js,content-task.js,preferencesbindings.js,lodash.js,jszip.js,sinon-7.2.7.js,jsol.js");
 #endif
 
 #if defined(DEBUG) || defined(FUZZING)
@@ -4716,6 +4724,8 @@ pref("signon.autofillForms.autocompleteOff", true);
 pref("signon.autofillForms.http",           false);
 pref("signon.autologin.proxy",              false);
 pref("signon.formlessCapture.enabled",      true);
+pref("signon.generation.available",         false);
+pref("signon.generation.enabled",           false);
 pref("signon.privateBrowsingCapture.enabled", false);
 pref("signon.storeWhenAutocompleteOff",     true);
 pref("signon.debug",                        false);
@@ -6050,4 +6060,3 @@ pref("fission.preserve_browsing_contexts", false);
 //  * userContent.css
 //  * userChrome.css
 pref("toolkit.legacyUserProfileCustomizations.stylesheets", false);
-
