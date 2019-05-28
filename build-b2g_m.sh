@@ -3,7 +3,7 @@
 set -e
 
 export MOZCONFIG=mozconfig-b2g
-export PLATFORM_VERSION=28
+export PLATFORM_VERSION=23
 export ANDROID_PLATFORM=android-${PLATFORM_VERSION}
 
 # Check that the GONK_PATH environment variable is set.
@@ -96,7 +96,6 @@ $HWC_DEFINE \
 -I$GONK_PATH/system/core/libpixelflinger/include/ \
 -I$GONK_PATH/frameworks/native/include \
 -I$GONK_PATH/frameworks/native/include/android \
--I$GONK_PATH/frameworks/native/libs/nativewindow/include \
 -I$GONK_PATH/frameworks/native/libs/nativebase/include \
 -I$GONK_PATH/frameworks/native/libs/nativebase \
 -I$GONK_PATH/system \
@@ -122,6 +121,6 @@ export ANDROID_PLATFORM=$ANDROID_PLATFORM
 export LDFLAGS="-L$GONK_PATH/out/target/product/$GONK_PRODUCT_NAME/obj/lib \
 -Wl,-rpath-link=$GONK_PATH/out/target/product/$GONK_PRODUCT_NAME/obj/lib \
 --sysroot=$SYSROOT $GCC_LIB -ldl -lstdc++ -Wl,--no-as-needed \
--llog -landroid -lnativewindow -lbinder -lutils -lcutils -lhardware_legacy -lhardware -lui -lgui -lsuspend"
+-llog -landroid -lbinder -lutils -lcutils -lhardware_legacy -lhardware -lui -lgui -lsuspend"
 
 ./mach build $@
