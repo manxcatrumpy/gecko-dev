@@ -35,7 +35,11 @@
 #include <ui/Rect.h>
 #endif
 
-#include "../libdisplay/GonkKDisplay.h"
+#if ANDROID_VERSION >= 27
+#include "../libdisplay/GonkCarthageDisplay.h"
+#else
+#include "../libdisplay/GonkDisplay.h"
+#endif
 #include "../ScreenHelperGonk.h"
 #include "FakeSurfaceComposer.h"
 #include "gfxPrefs.h"
