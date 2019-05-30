@@ -21,7 +21,11 @@
 #include "mozilla/TouchEvents.h"
 #include "mozilla/Hal.h"
 #include "libdisplay/BootAnimation.h"
-#include "libdisplay/GonkKDisplay.h"
+#if ANDROID_VERSION >= 27
+#include "libdisplay/GonkCarthageDisplay.h"
+#else
+#include "libdisplay/GonkDisplay.h"
+#endif
 #include "ScreenHelperGonk.h"
 #include "nsThreadUtils.h"
 // TODO: FIXME: #include "HwcComposer2D.h"
@@ -64,7 +68,9 @@ using namespace mozilla::layers;
 using namespace mozilla::dom;
 using namespace mozilla::widget;
 
+#if ANDROID_VERSION >= 27
 extern android::GonkDisplay * getGonkDisplay();
+#endif
 
 class ScreenOnOffEvent : public mozilla::Runnable {
 public:
@@ -121,10 +127,13 @@ SurfaceFormatToColorDepth(int32_t aSurfaceFormat)
 }
 
 // nsScreenGonk.cpp
-
 nsScreenGonk::nsScreenGonk(uint32_t aId,
-                           android::GonkDisplay::DisplayType aDisplayType,
+                           DisplayType aDisplayType,
+#if ANDROID_VERSION >= 27
                            const android::GonkDisplay::NativeData& aNativeData,
+#else
+                           const GonkDisplay::NativeData& aNativeData,
+#endif
                            NotifyDisplayChangedEvent aEventVisibility)
     : mId(aId)
     , mEventVisibility(aEventVisibility)
@@ -188,7 +197,7 @@ nsScreenGonk::~nsScreenGonk()
 bool
 nsScreenGonk::IsPrimaryScreen()
 {
-    return mDisplayType == android::GonkDisplay::DisplayType::DISPLAY_PRIMARY;
+    return mDisplayType == DisplayType::DISPLAY_PRIMARY;
 }
 
 NS_IMETHODIMP
@@ -634,7 +643,7 @@ nsScreenGonk::IsVsyncSupported()
   return mVsyncSupported;
 }
 
-android::GonkDisplay::DisplayType
+DisplayType
 nsScreenGonk::GetDisplayType()
 {
     return mDisplayType;
@@ -883,7 +892,11 @@ ScreenHelperGonk::ScreenHelperGonk()
   mScreenOnEvent = new ScreenOnOffEvent(true);
   mScreenOffEvent = new ScreenOnOffEvent(false);
   LOGE("Getting the gonk display");
+#if ANDROID_VERSION >= 27
   getGonkDisplay()->OnEnabled(displayEnabledCallback);
+#else
+  GetGonkDisplay()->OnEnabled(displayEnabledCallback);
+#endif
 
   LOGE("Refreshing screens");
   Refresh();
@@ -910,12 +923,16 @@ already_AddRefed<Screen> ScreenHelperGonk::MakePrimaryScreen() {
   MOZ_ASSERT(XRE_IsParentProcess());
 
   // From nsScreenManagerGonk
-  android::GonkDisplay::DisplayType displayType = android::GonkDisplay::DisplayType::DISPLAY_PRIMARY;
+  DisplayType displayType = DisplayType::DISPLAY_PRIMARY;
   uint32_t id = GetIdFromType(displayType);
   NS_ENSURE_TRUE(!IsScreenConnected(id), nullptr);
-
+#if ANDROID_VERSION >= 27
   android::GonkDisplay::NativeData nativeData =
-      getGonkDisplay()->GetNativeData(displayType, nullptr);
+  getGonkDisplay()->GetNativeData(displayType, nullptr);
+#else
+  GonkDisplay::NativeData nativeData =
+  GetGonkDisplay()->GetNativeData(displayType, nullptr);
+#endif
   mPrimaryScreen = new nsScreenGonk(id,
                                     displayType,
                                     nativeData,
@@ -969,7 +986,7 @@ void ScreenHelperGonk::Refresh() {
 }
 
 void ScreenHelperGonk::AddScreen(uint32_t aScreenId,
-                                 android::GonkDisplay::DisplayType aDisplayType,
+                                 DisplayType aDisplayType,
                                  LayoutDeviceIntRect aRect, float aDensity) {
   MOZ_ASSERT(aScreenId > 0);
   MOZ_ASSERT(!mScreens.Get(aScreenId, nullptr));
@@ -988,7 +1005,7 @@ void ScreenHelperGonk::RemoveScreen(uint32_t aScreenId) {
 }
 
 /* static */ uint32_t
-ScreenHelperGonk::GetIdFromType(android::GonkDisplay::DisplayType aDisplayType)
+ScreenHelperGonk::GetIdFromType(DisplayType aDisplayType)
 {
     // This is the only place where we make the assumption that
     // display type is equivalent to screen id.
